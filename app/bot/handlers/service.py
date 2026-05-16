@@ -15,7 +15,7 @@ from app.db.repositories.support_repo import SupportRepo
 from app.services.parser_kt import KTParser, ParsedKTCheck
 from app.services.parser_punishments import ParsedPunishment, PunishmentParser
 from app.services.parser_support import ParsedSupportTicket, SupportParser
-from app.utils.telegram_sources import message_matches_source
+from app.utils.telegram_sources import message_source_match
 from app.utils.text import clean_username
 
 
@@ -99,14 +99,8 @@ async def _collect(
 
 
 def _source_kind(message: Message, app_config: AppConfig) -> str | None:
-    sources = app_config.telegram_sources
-    if message_matches_source(message, sources.support):
-        return "support"
-    if message_matches_source(message, sources.kt):
-        return "kt"
-    if message_matches_source(message, sources.punishments):
-        return "punishments"
-    return None
+    match = message_source_match(message, app_config.telegram_sources)
+    return match.source_name if match.matched else None
 
 
 def _sender_metadata(message: Message) -> dict[str, object]:
@@ -131,7 +125,7 @@ async def _resolve_staff_id(
 ) -> int | None:
     telegram_user_id: int | None = None
     username: str | None = None
-    if from_user and not from_user.is_bot and alias in {from_user.username, from_user.full_name}:
+    if from_user and alias in {from_user.username, from_user.full_name}:
         telegram_user_id = from_user.id
         username = from_user.username
 

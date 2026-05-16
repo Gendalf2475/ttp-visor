@@ -46,7 +46,7 @@ class SupportParser:
 
         ticket_id = first_match(self.ticket_id_patterns, text)
         moderator_alias = first_match(self.moderator_patterns, text)
-        if not moderator_alias and message.from_user and not message.from_user.is_bot:
+        if not moderator_alias and message.from_user:
             moderator_alias = message.from_user.username or message.from_user.full_name
 
         event_key = f"support:ticket:{message.chat.id}:{ticket_id}" if ticket_id else self._message_event_key(message, text)

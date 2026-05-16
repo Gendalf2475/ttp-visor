@@ -15,11 +15,19 @@ class TopicSourceConfig(BaseModel):
     enabled: bool = True
     chat_id: int
     topic_id: int | None = None
+    topic_ids: list[int] = Field(default_factory=list)
+    all_topics: bool = False
 
     def matches(self, chat_id: int, topic_id: int | None) -> bool:
         if not self.enabled or self.chat_id != chat_id:
             return False
-        return self.topic_id is None or self.topic_id == topic_id
+        if self.all_topics:
+            return True
+        if self.topic_ids:
+            return topic_id in self.topic_ids
+        if self.topic_id is not None:
+            return self.topic_id == topic_id
+        return True
 
 
 class TelegramSourcesConfig(BaseModel):

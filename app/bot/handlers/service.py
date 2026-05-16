@@ -15,6 +15,7 @@ from app.db.repositories.support_repo import SupportRepo
 from app.services.parser_kt import KTParser, ParsedKTCheck
 from app.services.parser_punishments import ParsedPunishment, PunishmentParser
 from app.services.parser_support import ParsedSupportTicket, SupportParser
+from app.utils.telegram_sources import message_matches_source
 from app.utils.text import clean_username
 
 
@@ -98,13 +99,12 @@ async def _collect(
 
 
 def _source_kind(message: Message, app_config: AppConfig) -> str | None:
-    topic_id = message.message_thread_id
     sources = app_config.telegram_sources
-    if sources.support and sources.support.matches(message.chat.id, topic_id):
+    if message_matches_source(message, sources.support):
         return "support"
-    if sources.kt and sources.kt.matches(message.chat.id, topic_id):
+    if message_matches_source(message, sources.kt):
         return "kt"
-    if sources.punishments and sources.punishments.matches(message.chat.id, topic_id):
+    if message_matches_source(message, sources.punishments):
         return "punishments"
     return None
 

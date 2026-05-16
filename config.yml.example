@@ -7,16 +7,22 @@ bot:
 telegram_sources:
   support:
     enabled: true
-    chat_id: -1001111111111
-    topic_id: 10
+    chat_id: -1000000000000
+    topic_id: null
+    topic_ids: []
+    all_topics: true
   kt:
     enabled: true
     chat_id: -1001111111111
     topic_id: 20
+    topic_ids: []
+    all_topics: false
   punishments:
     enabled: true
     chat_id: -1001111111111
     topic_id: 30
+    topic_ids: []
+    all_topics: false
 
 report_target:
   chat_id: -1002222222222

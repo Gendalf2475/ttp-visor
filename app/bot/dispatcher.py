@@ -3,7 +3,7 @@ from __future__ import annotations
 from aiogram import Dispatcher
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.bot.handlers import admin, bindings, service, stats
+from app.bot.handlers import admin, bindings, debug, service, stats
 from app.bot.middlewares.access import AccessMiddleware
 from app.config.loader import AppConfig
 from app.services.parser_kt import KTParser
@@ -39,9 +39,9 @@ def build_dispatcher(
         punishment_parser=punishment_parser,
     )
 
+    dp.include_router(debug.router)
     dp.include_router(admin.router)
     dp.include_router(stats.router)
     dp.include_router(bindings.router)
     dp.include_router(service.router)
     return dp
-

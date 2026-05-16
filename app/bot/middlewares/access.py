@@ -7,7 +7,8 @@ from aiogram import BaseMiddleware
 from aiogram.enums import ChatType
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-from app.config.loader import AppConfig, TopicSourceConfig
+from app.config.loader import AppConfig
+from app.utils.telegram_sources import message_matches_source
 
 
 class AccessMiddleware(BaseMiddleware):
@@ -32,6 +33,13 @@ class AccessMiddleware(BaseMiddleware):
         message: Message,
         data: dict[str, Any],
     ) -> Any:
+        if self._is_debug_command(message):
+            if message.from_user and message.from_user.id in self.config.bot.super_admin_ids:
+                return await handler(message, data)
+            if message.chat.type == ChatType.PRIVATE:
+                await message.answer("Доступ запрещён.")
+            return None
+
         if self._is_source_message(message):
             return await handler(message, data)
 
@@ -57,9 +65,8 @@ class AccessMiddleware(BaseMiddleware):
     def _is_source_message(self, message: Message) -> bool:
         if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP, ChatType.CHANNEL}:
             return False
-        topic_id = message.message_thread_id
         return any(
-            self._matches_source(source, message.chat.id, topic_id)
+            message_matches_source(message, source)
             for source in (
                 self.config.telegram_sources.support,
                 self.config.telegram_sources.kt,
@@ -68,6 +75,7 @@ class AccessMiddleware(BaseMiddleware):
         )
 
     @staticmethod
-    def _matches_source(source: TopicSourceConfig | None, chat_id: int, topic_id: int | None) -> bool:
-        return bool(source and source.matches(chat_id, topic_id))
-
+    def _is_debug_command(message: Message) -> bool:
+        text = message.text or message.caption or ""
+        command = text.strip().split(maxsplit=1)[0] if text.strip() else ""
+        return command.split("@", maxsplit=1)[0] == "/debug"

@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ttp_visor
+      POSTGRES_USER: ttp_visor
+      POSTGRES_PASSWORD: ttp_visor_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ttp_visor -d ttp_visor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./config.yml:/opt/ttp-visor/config.yml:ro
+      - ./google_credentials.json:/opt/ttp-visor/google_credentials.json:ro
+    command: sh -c "alembic upgrade head && python -m app.main"
+
+volumes:
+  postgres_data:
+

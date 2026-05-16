@@ -1,0 +1,69 @@
+timezone: Europe/Moscow
+
+bot:
+  super_admin_ids:
+    - 123456789
+
+telegram_sources:
+  support:
+    enabled: true
+    chat_id: -1001111111111
+    topic_id: 10
+  kt:
+    enabled: true
+    chat_id: -1001111111111
+    topic_id: 20
+  punishments:
+    enabled: true
+    chat_id: -1001111111111
+    topic_id: 30
+
+report_target:
+  chat_id: -1002222222222
+  topic_id: 5
+
+google_sheets:
+  enabled: true
+  spreadsheet_id: "1Ss0Eq_zqrbQh2JQ4cr4d1AVG8-7-OPeHorSdh5-umII"
+  range_name: "'Администрация | Штат'!A4:E"
+  active_mode: presence_in_sheet
+  header_rows: 0
+  rank_column: 0
+  nickname_column: 1
+  mentor_column: 2
+  real_name_column: 3
+  telegram_column: 4
+  telegram_id_column:
+  active_column:
+  aliases_column:
+
+parsers:
+  support:
+    required_markers: ["закрыл", "закрыт", "closed", "решено", "✅"]
+    ticket_id_patterns:
+      - "(?:ticket|тикет|заявк[аи]|обращение)\\D{0,12}#?([A-Za-zА-Яа-я0-9_-]+)"
+      - "#(\\d{3,})"
+    moderator_patterns:
+      - "(?:модератор|закрыл(?:а)?|закрыто\\s+модератором|сотрудник)\\s*[:\\-]\\s*(@?[A-Za-zА-Яа-я0-9_.\\-\\s]+)"
+      - "@([A-Za-z0-9_]{5,32})"
+  kt:
+    required_markers: ["кт", "контроль", "проверил", "проверена", "проверен"]
+  punishments:
+    issued_markers: ["выдал", "выдан", "наказал", "наказание", "ban", "mute", "warn"]
+    removed_markers: ["снял", "снято", "разбан", "размут", "unban", "unmute"]
+
+scheduler:
+  enabled: true
+  timezone: Europe/Moscow
+  staff_sync:
+    enabled: true
+    cron: "0 */6 * * *"
+  reports:
+    - enabled: true
+      period: week
+      cron: "0 20 * * SUN"
+      title: "Еженедельный отчёт TTP VISOR"
+    - enabled: true
+      period: current_month
+      cron: "0 20 1 * *"
+      title: "Отчёт за текущий месяц"

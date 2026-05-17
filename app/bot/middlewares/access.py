@@ -9,7 +9,7 @@ from aiogram.enums import ChatType
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from app.config.loader import AppConfig
-from app.utils.telegram_sources import message_is_from_configured_source_chat, message_source_match
+from app.utils.telegram_sources import message_is_from_configured_source_chat, message_source_match, source_match_reason
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ class AccessMiddleware(BaseMiddleware):
         data: dict[str, Any],
     ) -> Any:
         self._log_source_message_debug(message)
+        self._log_unmatched_punishment_source_message(message)
 
         if self._is_debug_command(message):
             if message.from_user and message.from_user.id in self.config.bot.super_admin_ids:
@@ -101,6 +102,46 @@ class AccessMiddleware(BaseMiddleware):
             source_match.matched,
             source_match.source_name,
             source_match.reason,
+        )
+
+    def _log_unmatched_punishment_source_message(self, message: Message) -> None:
+        source_config = self.config.telegram_sources.punishments
+        if source_config is None or message.chat.id != source_config.chat_id:
+            return
+
+        match = source_match_reason(message, source_config)
+        if match.matched:
+            return
+
+        from_user = message.from_user
+        sender_chat = message.sender_chat
+        text_preview = ((message.text or message.caption or "")[:300]).replace("\n", "\\n")
+
+        logger.info(
+            "Punishment message diagnostics: chat_id=%s topic_id=%s message_id=%s "
+            "from_user_id=%s from_username=%s from_user_is_bot=%s "
+            "sender_chat_id=%s sender_chat_title=%s text_preview=%r "
+            "matched_punishments_source=%s source_reason=%s "
+            "parser_success=%s punishment_type=%s moderator_alias=%s violator=%s "
+            "punishment_reason=%s occurred_at=%s failure_reason=%s",
+            message.chat.id,
+            message.message_thread_id,
+            message.message_id,
+            from_user.id if from_user else None,
+            from_user.username if from_user else None,
+            from_user.is_bot if from_user else None,
+            sender_chat.id if sender_chat else None,
+            sender_chat.title if sender_chat else None,
+            text_preview,
+            False,
+            match.reason,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
         )
 
     @staticmethod

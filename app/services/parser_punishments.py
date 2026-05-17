@@ -51,6 +51,16 @@ class ParsedPunishment:
     raw_text: str
 
 
+@dataclass(slots=True)
+class PunishmentParseDiagnostics:
+    parsed: ParsedPunishment | None
+    failure_reason: str | None = None
+
+    @property
+    def success(self) -> bool:
+        return self.parsed is not None
+
+
 class PunishmentParser:
     def __init__(self, config: PunishmentParserConfig):
         self.id_patterns = config.ticket_id_patterns or DEFAULT_ID_PATTERNS
@@ -60,16 +70,22 @@ class PunishmentParser:
         self.removed_markers = config.removed_markers or DEFAULT_REMOVED_MARKERS
 
     def parse(self, message: Message) -> ParsedPunishment | None:
+        return self.parse_with_diagnostics(message).parsed
+
+    def parse_with_diagnostics(self, message: Message) -> PunishmentParseDiagnostics:
         text = message.text or message.caption or ""
         if not text.strip():
-            return None
+            return PunishmentParseDiagnostics(parsed=None, failure_reason="empty_text_and_caption")
         if self.required_markers and not contains_any(self.required_markers, text):
-            return None
+            return PunishmentParseDiagnostics(parsed=None, failure_reason="required_markers_missing")
 
         punishment_type = classify_punishment_type(text)
         action = self._detect_action(text, punishment_type)
         if action is None:
-            return None
+            return PunishmentParseDiagnostics(
+                parsed=None,
+                failure_reason=f"action_not_detected punishment_type={punishment_type or 'none'}",
+            )
 
         punishment_id = first_match(self.id_patterns, text)
         moderator_alias = first_match(self.moderator_patterns, text)
@@ -82,20 +98,22 @@ class PunishmentParser:
             else self._message_event_key(message, text, action)
         )
 
-        return ParsedPunishment(
-            event_key=event_key,
-            punishment_id=punishment_id,
-            action=action,
-            punishment_type=punishment_type,
-            rule_missing=is_rule_missing(text),
-            target=first_match(DEFAULT_TARGET_PATTERNS, text),
-            reason=first_match(DEFAULT_REASON_PATTERNS, text),
-            moderator_alias=moderator_alias,
-            chat_id=message.chat.id,
-            topic_id=message.message_thread_id,
-            message_id=message.message_id,
-            punished_at=to_utc(message.date),
-            raw_text=text,
+        return PunishmentParseDiagnostics(
+            parsed=ParsedPunishment(
+                event_key=event_key,
+                punishment_id=punishment_id,
+                action=action,
+                punishment_type=punishment_type,
+                rule_missing=is_rule_missing(text),
+                target=first_match(DEFAULT_TARGET_PATTERNS, text),
+                reason=first_match(DEFAULT_REASON_PATTERNS, text),
+                moderator_alias=moderator_alias,
+                chat_id=message.chat.id,
+                topic_id=message.message_thread_id,
+                message_id=message.message_id,
+                punished_at=to_utc(message.date),
+                raw_text=text,
+            )
         )
 
     def _detect_action(self, text: str, punishment_type: str | None) -> str | None:

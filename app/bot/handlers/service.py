@@ -13,9 +13,9 @@ from app.db.repositories.kt_repo import KTRepo
 from app.db.repositories.punishments_repo import PunishmentsRepo
 from app.db.repositories.support_repo import SupportRepo
 from app.services.parser_kt import KTParser, ParsedKTCheck
-from app.services.parser_punishments import ParsedPunishment, PunishmentParser
+from app.services.parser_punishments import ParsedPunishment, PunishmentParseDiagnostics, PunishmentParser
 from app.services.parser_support import ParsedSupportTicket, SupportParser
-from app.utils.telegram_sources import message_source_match
+from app.utils.telegram_sources import message_source_match, source_match_reason
 from app.utils.text import clean_username
 
 
@@ -57,6 +57,7 @@ async def _collect(
     kt_parser: KTParser,
     punishment_parser: PunishmentParser,
 ) -> None:
+    punishment_diagnostics = _log_punishment_message_diagnostics(message, app_config, punishment_parser)
     kind = _source_kind(message, app_config)
     if kind is None:
         return
@@ -67,7 +68,7 @@ async def _collect(
     elif kind == "kt":
         parsed = kt_parser.parse(message)
     else:
-        parsed = punishment_parser.parse(message)
+        parsed = punishment_diagnostics.parsed if punishment_diagnostics else punishment_parser.parse(message)
 
     if parsed is None:
         return
@@ -101,6 +102,56 @@ async def _collect(
 def _source_kind(message: Message, app_config: AppConfig) -> str | None:
     match = message_source_match(message, app_config.telegram_sources)
     return match.source_name if match.matched else None
+
+
+def _log_punishment_message_diagnostics(
+    message: Message,
+    app_config: AppConfig,
+    punishment_parser: PunishmentParser,
+) -> PunishmentParseDiagnostics | None:
+    source_config = app_config.telegram_sources.punishments
+    if source_config is None or message.chat.id != source_config.chat_id:
+        return None
+
+    match = source_match_reason(message, source_config)
+    diagnostics = punishment_parser.parse_with_diagnostics(message) if match.matched else None
+    parsed = diagnostics.parsed if diagnostics else None
+    from_user = message.from_user
+    sender_chat = message.sender_chat
+    log_level = logging.WARNING if diagnostics and not diagnostics.success else logging.INFO
+
+    logger.log(
+        log_level,
+        "Punishment message diagnostics: chat_id=%s topic_id=%s message_id=%s "
+        "from_user_id=%s from_username=%s from_user_is_bot=%s "
+        "sender_chat_id=%s sender_chat_title=%s text_preview=%r "
+        "matched_punishments_source=%s source_reason=%s "
+        "parser_success=%s punishment_type=%s moderator_alias=%s violator=%s "
+        "punishment_reason=%s occurred_at=%s failure_reason=%s",
+        message.chat.id,
+        message.message_thread_id,
+        message.message_id,
+        from_user.id if from_user else None,
+        from_user.username if from_user else None,
+        from_user.is_bot if from_user else None,
+        sender_chat.id if sender_chat else None,
+        sender_chat.title if sender_chat else None,
+        _text_preview(message),
+        match.matched,
+        match.reason,
+        diagnostics.success if diagnostics else None,
+        parsed.punishment_type if parsed else None,
+        parsed.moderator_alias if parsed else None,
+        parsed.target if parsed else None,
+        parsed.reason if parsed else None,
+        parsed.punished_at.isoformat() if parsed else None,
+        diagnostics.failure_reason if diagnostics else None,
+    )
+    return diagnostics
+
+
+def _text_preview(message: Message) -> str:
+    return (message.text or message.caption or "")[:300].replace("\n", "\\n")
 
 
 def _sender_metadata(message: Message) -> dict[str, object]:

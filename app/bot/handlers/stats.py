@@ -35,6 +35,26 @@ async def stats(
         await message.answer(chunk)
 
 
+@router.message(Command("stats_full"))
+async def stats_full(
+    message: Message,
+    command: CommandObject,
+    app_config: AppConfig,
+    report_service: ReportService,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    try:
+        period = parse_period_expression(app_config.timezone, command.args)
+    except ValueError as exc:
+        await message.answer(f"Не понял период: {exc}")
+        return
+    async with session_factory() as session:
+        text = await report_service.build_full_report_text(session, period)
+
+    for chunk in split_telegram_text(text):
+        await message.answer(chunk)
+
+
 @router.message(Command("stats_user"))
 async def stats_user(
     message: Message,

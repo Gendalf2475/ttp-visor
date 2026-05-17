@@ -24,7 +24,8 @@ HELP_TEXT = """TTP VISOR доступен только супер-админам
 Команды:
 /sync_staff - синхронизировать состав из Google Sheets
 /sync_extra - синхронизировать доп. занятости
-/stats [period] - показать отчёт в личке
+/stats [period] - короткая сводка
+/stats_full [period] - полный отчёт
 /stats_user ник [period] - отчёт по модератору
 /stats_direction направление [period] - отчёт по направлению
 /report [period] - отправить отчёт в настроенный чат

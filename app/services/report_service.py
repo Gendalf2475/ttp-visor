@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -34,8 +36,81 @@ class ReportService:
         self.config = config
         self.stats_service = stats_service
 
-    async def build_report_text(self, session: AsyncSession, period: Period, title: str | None = None) -> str:
+    async def build_report_text(
+        self,
+        session: AsyncSession,
+        period: Period,
+        title: str | None = None,
+        report_format: str | None = None,
+    ) -> str:
+        selected_format = report_format or self.config.reports.default_stats_format
+        if selected_format == "full":
+            return await self.build_full_report_text(session, period, title)
+        return await self.build_compact_report_text(session, period, title)
+
+    async def build_compact_report_text(
+        self,
+        session: AsyncSession,
+        period: Period,
+        title: str | None = None,
+    ) -> str:
+        report = await self.stats_service.collect(
+            session,
+            period,
+            show_zero_activity_staff=self.config.reports.compact_show_extra_directions,
+        )
+        totals = report.totals
+        title_text = title or f"TTP VISOR — {_format_compact_title(period)}"
+        lines = [
+            f"📊 {html_escape(title_text)}",
+            f"🗓 {_format_compact_period(period)}",
+            "",
+            "📌 Всего:",
+            f"🎫 ТП: {totals.support_tickets}",
+            f"🧾 КТ: {totals.kt_checks}",
+            f"⚖️ Наказаний: {totals.punishments.issued}",
+            f"✅ Снятий: {totals.punishments.removed}",
+            f"🔢 Действий: {totals.total}",
+            "",
+            "⚖️ Наказания:",
+            (
+                f"⛔️ Баны: {totals.punishments.ban} | "
+                f"🔇 Муты: {totals.punishments.mute} | "
+                f"⚠️ Варны: {totals.punishments.warn}"
+            ),
+            f"✅ Снятия: {totals.punishments.removed} | ❗️Без пункта: {totals.punishments.without_rule}",
+            "",
+            f"🏆 Топ-{self.config.reports.compact_top_limit}:",
+        ]
+        lines.extend(
+            self._format_top(
+                report.rows,
+                limit=self.config.reports.compact_top_limit,
+                suffix="",
+            )
+        )
+
+        if self.config.reports.compact_show_extra_directions:
+            lines.extend(["", *self._format_compact_extra_directions(report.rows)])
+
+        lines.extend(
+            [
+                "",
+                "📎 Подробно: /stats_full",
+                "👤 По модератору: /stats_user <ник>",
+                "📂 По направлению: /stats_direction <направление>",
+            ]
+        )
+        return "\n".join(lines)
+
+    async def build_full_report_text(
+        self,
+        session: AsyncSession,
+        period: Period,
+        title: str | None = None,
+    ) -> str:
         report = await self.stats_service.collect(session, period)
+        rows = self._full_report_rows(report.rows)
         title_text = title or f"TTP VISOR — отчёт за {period.title}"
         lines = [
             f"📊 <b>{html_escape(title_text)}</b>",
@@ -43,7 +118,7 @@ class ReportService:
             "",
         ]
 
-        if not report.rows:
+        if not rows:
             lines.append("За период нет сохранённых событий.")
             return "\n".join(lines)
 
@@ -53,7 +128,7 @@ class ReportService:
         lines.extend(["", "🏆 <b>Топ модераторов:</b>"])
         lines.extend(self._format_top(report.rows))
         lines.extend(["", "👮‍♂️ <b>Модераторы:</b>"])
-        for index, row in enumerate(report.rows, start=1):
+        for index, row in enumerate(rows, start=1):
             lines.extend(["", *self._format_moderator_card(row, index=index)])
         return "\n".join(lines)
 
@@ -93,7 +168,7 @@ class ReportService:
         if normalized_direction is None:
             return "Неизвестное направление. Используйте punishments, support или kt."
 
-        report = await self.stats_service.collect(session, period)
+        report = await self.stats_service.collect(session, period, show_zero_activity_staff=False)
         if normalized_direction == "punishments":
             return self._format_punishments_direction(report)
         if normalized_direction == "support":
@@ -111,7 +186,12 @@ class ReportService:
             raise ValueError("report_target.chat_id is not configured")
 
         async with session_factory() as session:
-            text = await self.build_report_text(session, period, title)
+            text = await self.build_report_text(
+                session,
+                period,
+                title,
+                report_format=self.config.reports.auto_report_format,
+            )
 
         for chunk in split_telegram_text(text):
             await bot.send_message(
@@ -143,13 +223,22 @@ class ReportService:
             f"❗️Без пункта правила: {punishments.without_rule}",
         ]
 
-    def _format_top(self, rows: list[ModeratorStats], metric: str = "total", suffix: str = "действий") -> list[str]:
-        top_rows = [row for row in rows if self._metric(row, metric) > 0]
+    def _format_top(
+        self,
+        rows: list[ModeratorStats],
+        metric: str = "total",
+        suffix: str = "действий",
+        limit: int = 10,
+    ) -> list[str]:
+        top_rows = sorted(
+            (row for row in rows if self._metric(row, metric) > 0),
+            key=lambda row: (-self._metric(row, metric), row.name.lower()),
+        )
         if not top_rows:
             return ["нет данных"]
         return [
             f"{index}. {html_escape(row.name)} — {self._metric(row, metric)} {suffix}".rstrip()
-            for index, row in enumerate(top_rows[:10], start=1)
+            for index, row in enumerate(top_rows[:limit], start=1)
         ]
 
     def _format_moderator_card(self, row: ModeratorStats, index: int) -> list[str]:
@@ -186,6 +275,29 @@ class ReportService:
         )
         return lines
 
+    def _full_report_rows(self, rows: list[ModeratorStats]) -> list[ModeratorStats]:
+        if self.config.reports.full_report_show_zero_activity_staff:
+            return rows
+        return [row for row in rows if row.total > 0 or row.extra_occupations]
+
+    def _format_compact_extra_directions(self, rows: list[ModeratorStats]) -> list[str]:
+        groups = [
+            ("🎫 ТП", _has_support_extra),
+            ("🧾 КТ", _has_kt_extra),
+            ("🌐 Соцсети", _has_social_extra),
+        ]
+        lines = ["💼 Доп. направления:"]
+        has_data = False
+        for label, predicate in groups:
+            names = _extra_direction_names(rows, predicate)
+            if not names:
+                continue
+            has_data = True
+            lines.append(f"{label}: {', '.join(html_escape(name) for name in names)}")
+        if not has_data:
+            lines.append("нет данных")
+        return lines
+
     def _format_punishments_direction(self, report: StatsReport) -> str:
         totals = report.totals.punishments
         rows = [row for row in report.rows if row.punishments.total > 0]
@@ -200,22 +312,9 @@ class ReportService:
             f"✅ Снятия наказаний: {totals.removed}",
             f"❗️Без пункта правила: {totals.without_rule}",
             "",
-            "🏆 <b>Топ по наказаниям:</b>",
+            "🏆 <b>Топ-10 по наказаниям:</b>",
         ]
-        lines.extend(self._format_top(rows, metric="punishments", suffix=""))
-        lines.extend(["", "👮‍♂️ <b>По модераторам:</b>"])
-        for row in rows:
-            lines.extend(
-                [
-                    "",
-                    f"<b>{html_escape(row.name)}:</b>",
-                    f"⛔️ Баны: {row.punishments.ban}",
-                    f"🔇 Муты: {row.punishments.mute}",
-                    f"⚠️ Предупреждения: {row.punishments.warn}",
-                    f"✅ Снятия: {row.punishments.removed}",
-                    f"❗️Без пункта правила: {row.punishments.without_rule}",
-                ]
-            )
+        lines.extend(self._format_top(rows, metric="punishments", suffix="", limit=10))
         return "\n".join(lines)
 
     def _format_support_direction(self, report: StatsReport) -> str:
@@ -226,11 +325,9 @@ class ReportService:
             "",
             f"📌 Всего закрыто тикетов: {report.totals.support_tickets}",
             "",
-            "🏆 <b>Топ по закрытым тикетам:</b>",
+            "🏆 <b>Топ-10 по закрытым тикетам:</b>",
         ]
-        lines.extend(self._format_top(rows, metric="support", suffix=""))
-        lines.extend(["", "👮‍♂️ <b>По модераторам:</b>"])
-        lines.extend([f"{html_escape(row.name)} — {row.support_tickets}" for row in rows] or ["нет данных"])
+        lines.extend(self._format_top(rows, metric="support", suffix="", limit=10))
         return "\n".join(lines)
 
     def _format_kt_direction(self, report: StatsReport) -> str:
@@ -241,11 +338,9 @@ class ReportService:
             "",
             f"📌 Всего проверено тикетов: {report.totals.kt_checks}",
             "",
-            "🏆 <b>Топ по проверенным тикетам:</b>",
+            "🏆 <b>Топ-10 по проверенным тикетам:</b>",
         ]
-        lines.extend(self._format_top(rows, metric="kt", suffix=""))
-        lines.extend(["", "👮‍♂️ <b>По модераторам:</b>"])
-        lines.extend([f"{html_escape(row.name)} — {row.kt_checks}" for row in rows] or ["нет данных"])
+        lines.extend(self._format_top(rows, metric="kt", suffix="", limit=10))
         return "\n".join(lines)
 
     @staticmethod
@@ -261,6 +356,24 @@ class ReportService:
 
 def _format_period(period: Period) -> str:
     return f"{period.start_date:%d.%m.%Y} — {period.end_date_inclusive:%d.%m.%Y}"
+
+
+def _format_compact_period(period: Period) -> str:
+    start = period.start_date
+    end = period.end_date_inclusive
+    if start.year == end.year:
+        return f"{start:%d.%m}–{end:%d.%m}"
+    return f"{start:%d.%m.%Y}–{end:%d.%m.%Y}"
+
+
+def _format_compact_title(period: Period) -> str:
+    titles = {
+        "week": "неделя",
+        "current_month": "месяц",
+        "previous_month": "прошлый месяц",
+        "two_months_ago": "позапрошлый месяц",
+    }
+    return titles.get(period.key, "период")
 
 
 def _extras_inline(row: ModeratorStats | StaffMember) -> str:
@@ -284,9 +397,23 @@ def _has_kt_extra(row: ModeratorStats) -> bool:
     )
 
 
+def _has_social_extra(row: ModeratorStats) -> bool:
+    return _has_extra_with_markers(row, markers=("соц", "социаль"))
+
+
 def _has_extra_with_markers(row: ModeratorStats, markers: tuple[str, ...]) -> bool:
     for extra in row.extra_occupations:
         text = f"{extra.direction} {extra.occupation}".lower()
         if any(marker in text for marker in markers):
             return True
     return False
+
+
+def _extra_direction_names(rows: list[ModeratorStats], predicate: Callable[[ModeratorStats], bool]) -> list[str]:
+    names_by_key: dict[str, str] = {}
+    for row in rows:
+        if not predicate(row):
+            continue
+        key = row.name.lower()
+        names_by_key.setdefault(key, row.name)
+    return [names_by_key[key] for key in sorted(names_by_key)]

@@ -53,6 +53,11 @@ class ReportTargetConfig(BaseModel):
 
 
 class ReportsConfig(BaseModel):
+    default_stats_format: Literal["compact", "full"] = "compact"
+    auto_report_format: Literal["compact", "full"] = "compact"
+    full_report_show_zero_activity_staff: bool = False
+    compact_top_limit: int = Field(default=5, ge=1)
+    compact_show_extra_directions: bool = False
     show_zero_support_without_extra: bool = False
     show_zero_kt_without_extra: bool = False
 

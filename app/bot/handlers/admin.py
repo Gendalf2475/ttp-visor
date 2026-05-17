@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config.loader import AppConfig
 from app.db.models.staff import StaffExtraOccupation
 from app.db.repositories.extra_occupations_repo import ExtraOccupationsRepo
+from app.db.repositories.punishments_repo import PunishmentsRepo
 from app.db.repositories.staff_repo import StaffRepo
 from app.services.report_service import ReportService
 from app.services.staff_sync import StaffSyncService
@@ -33,6 +34,7 @@ HELP_TEXT = """TTP VISOR доступен только супер-админам
 /extras [ник] - показать доп. занятости
 /ignored_staff - показать ignore-list сотрудников
 /debug_staff [ник] - проверить staff/extras/events lookup
+/normalize_punishments - нормализовать сохранённые наказания
 /staff_find текст - найти модератора
 /bind staff_id alias [telegram_user_id] - привязать алиас к модератору
 /unbind alias - удалить привязку
@@ -159,6 +161,24 @@ async def ignored_staff(message: Message, app_config: AppConfig) -> None:
     else:
         lines.append("список пуст")
     await message.answer("\n".join(lines))
+
+
+@router.message(Command("normalize_punishments"))
+async def normalize_punishments(
+    message: Message,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        result = await PunishmentsRepo(session).normalize_moderator_aliases()
+        await session.commit()
+
+    await safe_answer(
+        message,
+        "Нормализация наказаний завершена:\n"
+        f"проверено: {result.scanned}\n"
+        f"нормализовано aliases: {result.normalized}\n"
+        f"помечено invalid: {result.invalidated}",
+    )
 
 
 @router.message(Command("debug_staff"))

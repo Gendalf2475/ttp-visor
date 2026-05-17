@@ -122,7 +122,7 @@ class AccessMiddleware(BaseMiddleware):
             "from_user_id=%s from_username=%s from_user_is_bot=%s "
             "sender_chat_id=%s sender_chat_title=%s text_preview=%r "
             "matched_punishments_source=%s source_reason=%s "
-            "parser_success=%s punishment_type=%s moderator_alias=%s violator=%s "
+            "parser_success=%s punishment_type=%s moderator_alias=%s "
             "punishment_reason=%s occurred_at=%s failure_reason=%s",
             message.chat.id,
             message.message_thread_id,
@@ -135,7 +135,6 @@ class AccessMiddleware(BaseMiddleware):
             text_preview,
             False,
             match.reason,
-            None,
             None,
             None,
             None,

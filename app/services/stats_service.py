@@ -12,7 +12,12 @@ from app.db.models.staff import StaffMember
 from app.db.models.support_tickets import SupportTicket
 from app.db.repositories.extra_occupations_repo import ExtraOccupationsRepo
 from app.db.repositories.staff_repo import StaffRepo
-from app.services.parser_punishments import classify_punishment_type, is_rule_missing
+from app.services.parser_punishments import (
+    classify_punishment_type,
+    is_invalid_punishment_moderator_alias,
+    is_rule_missing,
+    normalize_punishment_moderator_alias,
+)
 from app.utils.dates import Period
 from app.utils.text import normalize_nickname
 
@@ -256,7 +261,11 @@ class StatsService:
                 Punishment.raw_text,
             )
             .outerjoin(StaffMember, Punishment.staff_id == StaffMember.id)
-            .where(Punishment.punished_at >= period.start, Punishment.punished_at < period.end)
+            .where(
+                Punishment.punished_at >= period.start,
+                Punishment.punished_at < period.end,
+                Punishment.is_valid.is_(True),
+            )
         )
         for (
             staff_id,
@@ -268,6 +277,10 @@ class StatsService:
             rule_missing,
             raw_text,
         ) in result.all():
+            alias = normalize_punishment_moderator_alias(alias)
+            if is_invalid_punishment_moderator_alias(alias):
+                continue
+
             resolved_type = punishment_type or classify_punishment_type(raw_text or "")
             resolved_rule_missing = bool(rule_missing) or is_rule_missing(raw_text or "")
             stats = self._bucket(

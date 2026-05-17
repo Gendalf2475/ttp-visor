@@ -9,18 +9,15 @@ from aiogram.types import Message
 from app.config.loader import PunishmentParserConfig
 from app.utils.dates import to_utc
 from app.utils.regex import contains_any, first_match, stable_hash
+from app.utils.text import normalize_nickname
 
 
 DEFAULT_ID_PATTERNS = [
     r"(?:наказани[ея]|punishment|id)\D{0,12}#?([A-Za-zА-Яа-я0-9_-]+)",
     r"#(\d{3,})",
 ]
-DEFAULT_MODERATOR_PATTERNS = [
-    r"(?:модератор|выдал(?:а)?|снял(?:а)?|сотрудник)\s*[:\-]\s*(@?[A-Za-zА-Яа-я0-9_.\-\s]+)",
-    r"@([A-Za-z0-9_]{5,32})",
-]
-DEFAULT_TARGET_PATTERNS = [
-    r"(?:игрок|нарушитель|пользователь|ник|target)\s*[:\-]\s*([^\n]+)",
+STRICT_MODERATOR_PATTERNS = [
+    r"(?im)^\s*Модератор\s*:\s*(?P<moderator>[^\n\r]+)\s*$",
 ]
 DEFAULT_REASON_PATTERNS = [
     r"(?:причина|reason)\s*[:\-]\s*([^\n]+)",
@@ -32,6 +29,14 @@ RULE_PATTERNS = [
     r"(?:пункт|п\.|правил[ао]?|rule)\s*[:#№\-]?\s*\d+(?:\.\d+)*",
     r"\b\d+\.\d+(?:\.\d+)*\b",
 ]
+INVALID_MODERATOR_ALIAS_LABELS = {
+    "unknown",
+    "нарушитель",
+    "длительность",
+    "причина",
+    "дата",
+    "модератор",
+}
 
 
 @dataclass(slots=True)
@@ -41,6 +46,7 @@ class ParsedPunishment:
     action: str
     punishment_type: str | None
     rule_missing: bool
+    is_valid: bool
     target: str | None
     reason: str | None
     moderator_alias: str | None
@@ -64,7 +70,7 @@ class PunishmentParseDiagnostics:
 class PunishmentParser:
     def __init__(self, config: PunishmentParserConfig):
         self.id_patterns = config.ticket_id_patterns or DEFAULT_ID_PATTERNS
-        self.moderator_patterns = config.moderator_patterns or DEFAULT_MODERATOR_PATTERNS
+        self.moderator_patterns = STRICT_MODERATOR_PATTERNS
         self.required_markers = config.required_markers
         self.issued_markers = config.issued_markers or DEFAULT_ISSUED_MARKERS
         self.removed_markers = config.removed_markers or DEFAULT_REMOVED_MARKERS
@@ -88,9 +94,13 @@ class PunishmentParser:
             )
 
         punishment_id = first_match(self.id_patterns, text)
-        moderator_alias = first_match(self.moderator_patterns, text)
-        if not moderator_alias and message.from_user:
-            moderator_alias = message.from_user.username or message.from_user.full_name
+        raw_moderator_alias = first_match(self.moderator_patterns, text)
+        moderator_alias = normalize_punishment_moderator_alias(raw_moderator_alias)
+        if is_invalid_punishment_moderator_alias(moderator_alias):
+            return PunishmentParseDiagnostics(
+                parsed=None,
+                failure_reason=f"invalid_moderator_alias alias={moderator_alias or 'none'}",
+            )
 
         event_key = (
             f"punishment:{action}:{message.chat.id}:{punishment_id}"
@@ -105,7 +115,8 @@ class PunishmentParser:
                 action=action,
                 punishment_type=punishment_type,
                 rule_missing=is_rule_missing(text),
-                target=first_match(DEFAULT_TARGET_PATTERNS, text),
+                is_valid=True,
+                target=None,
                 reason=first_match(DEFAULT_REASON_PATTERNS, text),
                 moderator_alias=moderator_alias,
                 chat_id=message.chat.id,
@@ -151,6 +162,23 @@ def classify_punishment_type(text: str) -> str | None:
         return "warn"
 
     return None
+
+
+def normalize_punishment_moderator_alias(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    alias = value.replace("\r", "\n").split("\n", maxsplit=1)[0].strip()
+    alias = re.sub(r"\s+", " ", alias)
+    return alias or None
+
+
+def is_invalid_punishment_moderator_alias(value: str | None) -> bool:
+    alias = normalize_punishment_moderator_alias(value)
+    if not alias:
+        return True
+    normalized = normalize_nickname(alias).strip(" :")
+    return normalized in INVALID_MODERATOR_ALIAS_LABELS
 
 
 def is_rule_missing(text: str) -> bool:

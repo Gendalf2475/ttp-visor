@@ -126,7 +126,7 @@ def _log_punishment_message_diagnostics(
         "from_user_id=%s from_username=%s from_user_is_bot=%s "
         "sender_chat_id=%s sender_chat_title=%s text_preview=%r "
         "matched_punishments_source=%s source_reason=%s "
-        "parser_success=%s punishment_type=%s moderator_alias=%s violator=%s "
+        "parser_success=%s punishment_type=%s moderator_alias=%s "
         "punishment_reason=%s occurred_at=%s failure_reason=%s",
         message.chat.id,
         message.message_thread_id,
@@ -142,7 +142,6 @@ def _log_punishment_message_diagnostics(
         diagnostics.success if diagnostics else None,
         parsed.punishment_type if parsed else None,
         parsed.moderator_alias if parsed else None,
-        parsed.target if parsed else None,
         parsed.reason if parsed else None,
         parsed.punished_at.isoformat() if parsed else None,
         diagnostics.failure_reason if diagnostics else None,

@@ -29,6 +29,7 @@ HELP_TEXT = """TTP VISOR доступен только супер-админам
 /stats_direction направление [period] - отчёт по направлению
 /report [period] - отправить отчёт в настроенный чат
 /extras [ник] - показать доп. занятости
+/ignored_staff - показать ignore-list сотрудников
 /debug_staff ник - проверить staff/extras/events lookup
 /staff_find текст - найти модератора
 /bind staff_id alias [telegram_user_id] - привязать алиас к модератору
@@ -124,11 +125,15 @@ async def send_report(
 async def extras(
     message: Message,
     command: CommandObject,
+    app_config: AppConfig,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     nickname = (command.args or "").strip() or None
     async with session_factory() as session:
         rows = await ExtraOccupationsRepo(session).list_active(nickname)
+
+    ignored_keys = _ignored_nickname_keys(app_config)
+    rows = [row for row in rows if normalize_nickname(row.nickname) not in ignored_keys]
 
     if nickname:
         text = _format_extras_for_nickname(nickname, rows)
@@ -137,6 +142,21 @@ async def extras(
 
     for chunk in split_telegram_text(text):
         await message.answer(chunk)
+
+
+@router.message(Command("ignored_staff"))
+async def ignored_staff(message: Message, app_config: AppConfig) -> None:
+    ignored = [
+        nickname.strip()
+        for nickname in app_config.staff.ignored_nicknames
+        if normalize_nickname(nickname)
+    ]
+    lines = ["🚫 Игнорируемые сотрудники:"]
+    if ignored:
+        lines.extend(f"- {html_escape(nickname)}" for nickname in ignored)
+    else:
+        lines.append("список пуст")
+    await message.answer("\n".join(lines))
 
 
 @router.message(Command("debug_staff"))
@@ -248,3 +268,11 @@ def _direction_icon(direction: str) -> str:
     if "поддерж" in lowered:
         return "🎫"
     return "💼"
+
+
+def _ignored_nickname_keys(app_config: AppConfig) -> set[str]:
+    return {
+        key
+        for key in (normalize_nickname(nickname) for nickname in app_config.staff.ignored_nicknames)
+        if key
+    }

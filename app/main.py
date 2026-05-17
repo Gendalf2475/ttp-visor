@@ -39,8 +39,8 @@ async def run() -> None:
     )
 
     sheets_client = GoogleSheetsClient(settings, app_config.google_sheets)
-    staff_sync_service = StaffSyncService(sheets_client)
-    stats_service = StatsService()
+    staff_sync_service = StaffSyncService(sheets_client, app_config.staff.ignored_nicknames)
+    stats_service = StatsService(app_config.staff.ignored_nicknames)
     report_service = ReportService(app_config, stats_service)
     support_parser = SupportParser(app_config.parsers.support)
     kt_parser = KTParser(app_config.parsers.kt)
@@ -80,4 +80,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

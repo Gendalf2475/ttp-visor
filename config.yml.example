@@ -4,6 +4,10 @@ bot:
   super_admin_ids:
     - 123456789
 
+staff:
+  ignored_nicknames:
+    - morols
+
 telegram_sources:
   support:
     enabled: true

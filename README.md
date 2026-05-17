@@ -34,6 +34,7 @@ cp config.yml.example config.yml
 3. Заполнить `config.yml`:
 
 - `bot.super_admin_ids`;
+- `staff.ignored_nicknames`, если часть ников нужно исключить из статистики;
 - `telegram_sources.*.chat_id`, `topic_id`, `topic_ids` или `all_topics`;
 - `report_target`;
 - `reports`, если нужно изменить отображение нулевых направлений в `/stats`;
@@ -63,6 +64,7 @@ docker compose up -d --build
 - `/stats_direction <направление> [period]` - отчёт по направлению.
 - `/report [period]` - отправить отчёт в настроенный чат.
 - `/extras [ник]` - показать активные доп. занятости.
+- `/ignored_staff` - показать сотрудников из ignore-list.
 - `/debug_staff <ник>` - проверить normalized lookup состава, доп. занятостей и событий недели.
 - `/debug` - показать `chat_id`, `topic_id` и данные текущего сообщения.
 - `/staff_find <текст>` - поиск модератора.
@@ -99,6 +101,22 @@ docker compose up -d --build
 - `username`
 
 Исходное значение сохраняется как `telegram_raw`. Если Telegram username есть в таблице, синхронизация автоматически создаёт или обновляет привязки nickname/telegram_username к модератору. Если `telegram_user_id` неизвестен, хранится только username; позже его можно добавить командой `/bind <staff_id> <alias> <telegram_user_id>`.
+
+## Ignore-list сотрудников
+
+Если ник есть в Google Sheets, но его не нужно учитывать в статистике и показывать в отчётах, добавьте его в `config.yml`:
+
+```yaml
+staff:
+  ignored_nicknames:
+    - morols
+```
+
+Сравнение выполняется через нормализацию ника: регистр не важен, лишние пробелы, non-breaking spaces и zero-width chars игнорируются. После изменения `config.yml` нужно перезапустить бота, чтобы он перечитал конфиг.
+
+Команда `/ignored_staff` показывает текущий список. После `/sync_staff` игнорируемые ники принудительно деактивируются в `staff_members`, а открытый active period закрывается. Их доп. занятости также помечаются inactive при синхронизации листа доп. занятостей.
+
+События по ignored nicknames могут оставаться в БД, но они не учитываются в `/stats`, `/stats_user`, `/stats_direction`, автоотчётах, топах и списках `/extras`.
 
 Для обратной совместимости старый плоский формат `google_sheets.spreadsheet_id` и `google_sheets.range_name` продолжает работать для основного состава. Новый рекомендуемый формат:
 

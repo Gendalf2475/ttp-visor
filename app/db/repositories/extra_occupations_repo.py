@@ -77,6 +77,26 @@ class ExtraOccupationsRepo:
     async def get_active_by_nickname_ci(self, nickname: str) -> list[StaffExtraOccupation]:
         return (await self.get_many_active_by_nicknames_ci([nickname])).get(normalize_nickname(nickname), [])
 
+    async def deactivate_by_nicknames_ci(self, nicknames: set[str] | list[str], synced_at: datetime) -> int:
+        normalized = {normalize_nickname(nickname) for nickname in nicknames}
+        normalized.discard("")
+        if not normalized:
+            return 0
+
+        rows = await self.session.scalars(select(StaffExtraOccupation))
+        deactivated = 0
+        for row in rows:
+            if normalize_nickname(row.nickname) not in normalized:
+                continue
+            if row.is_active:
+                deactivated += 1
+            row.is_active = False
+            row.deactivated_at = synced_at
+            row.last_seen_at = synced_at
+
+        await self.session.flush()
+        return deactivated
+
     async def sync(
         self,
         rows: list[ExtraOccupationUpsert],

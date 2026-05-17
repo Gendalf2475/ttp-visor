@@ -97,6 +97,13 @@ class StatsReport:
 
 
 class StatsService:
+    def __init__(self, ignored_nicknames: list[str] | None = None):
+        self.ignored_nickname_keys = {
+            key
+            for key in (normalize_nickname(nickname) for nickname in (ignored_nicknames or []))
+            if key
+        }
+
     async def collect(
         self,
         session: AsyncSession,
@@ -108,6 +115,8 @@ class StatsService:
 
         if show_zero_activity_staff:
             for staff in await StaffRepo(session).get_active_members():
+                if self._is_ignored_staff(staff):
+                    continue
                 self._bucket(
                     buckets,
                     staff_id=staff.id,
@@ -129,6 +138,14 @@ class StatsService:
         return StatsReport(period=period, rows=rows)
 
     async def collect_for_staff(self, session: AsyncSession, period: Period, staff: StaffMember) -> ModeratorStats:
+        if self._is_ignored_staff(staff):
+            return ModeratorStats(
+                name=staff.nickname or staff.full_name,
+                key=normalize_nickname(staff.nickname or staff.full_name),
+                staff_id=staff.id,
+                rank=staff.rank,
+            )
+
         report = await self.collect(session, period, show_zero_activity_staff=True)
         staff_key = normalize_nickname(staff.nickname or staff.full_name)
         for row in report.rows:
@@ -173,14 +190,16 @@ class StatsService:
             )
         )
         for staff_id, alias, staff_nickname, staff_full_name, rank, count in result.all():
-            self._bucket(
+            stats = self._bucket(
                 buckets,
                 staff_id=staff_id,
                 alias=alias,
                 staff_nickname=staff_nickname,
                 staff_full_name=staff_full_name,
                 rank=rank,
-            ).support_tickets += int(count)
+            )
+            if stats is not None:
+                stats.support_tickets += int(count)
 
     async def _collect_kt(
         self,
@@ -208,14 +227,16 @@ class StatsService:
             )
         )
         for staff_id, alias, staff_nickname, staff_full_name, rank, count in result.all():
-            self._bucket(
+            stats = self._bucket(
                 buckets,
                 staff_id=staff_id,
                 alias=alias,
                 staff_nickname=staff_nickname,
                 staff_full_name=staff_full_name,
                 rank=rank,
-            ).kt_checks += int(count)
+            )
+            if stats is not None:
+                stats.kt_checks += int(count)
 
     async def _collect_punishments(
         self,
@@ -249,32 +270,42 @@ class StatsService:
         ) in result.all():
             resolved_type = punishment_type or classify_punishment_type(raw_text or "")
             resolved_rule_missing = bool(rule_missing) or is_rule_missing(raw_text or "")
-            self._bucket(
+            stats = self._bucket(
                 buckets,
                 staff_id=staff_id,
                 alias=alias,
                 staff_nickname=staff_nickname,
                 staff_full_name=staff_full_name,
                 rank=rank,
-            ).punishments.add(resolved_type, resolved_rule_missing)
+            )
+            if stats is not None:
+                stats.punishments.add(resolved_type, resolved_rule_missing)
 
     async def _enrich_rows(self, session: AsyncSession, buckets: dict[str, ModeratorStats]) -> None:
+        for key, row in list(buckets.items()):
+            if self.is_ignored(row.name):
+                buckets.pop(key, None)
+
         rows = list(buckets.values())
         nicknames = {row.name for row in rows if row.name}
 
         staff_by_key = await StaffRepo(session).get_many_by_nicknames_ci(nicknames)
         staff_found_by_row: dict[int, bool] = {}
-        for row in rows:
+        for original_key, row in list(buckets.items()):
             key = normalize_nickname(row.name)
             staff = staff_by_key.get(key)
             staff_found_by_row[id(row)] = staff is not None
             if not staff:
+                continue
+            if self._is_ignored_staff(staff):
+                buckets.pop(original_key, None)
                 continue
             row.staff_id = staff.id
             row.name = staff.nickname or staff.full_name
             row.key = normalize_nickname(row.name)
             row.rank = staff.rank
 
+        rows = list(buckets.values())
         enriched_nicknames = {row.name for row in rows if row.name}
         extras_by_key = await ExtraOccupationsRepo(session).get_many_active_by_nicknames_ci(enriched_nicknames)
 
@@ -313,7 +344,10 @@ class StatsService:
         staff_nickname: str | None,
         staff_full_name: str | None,
         rank: str | None,
-    ) -> ModeratorStats:
+    ) -> ModeratorStats | None:
+        if any(self.is_ignored(value) for value in (staff_nickname, staff_full_name, alias)):
+            return None
+
         display_name = staff_nickname or staff_full_name or alias or "Не распознано"
         key = normalize_nickname(display_name) or (f"staff:{staff_id}" if staff_id is not None else "unknown")
 
@@ -333,3 +367,9 @@ class StatsService:
         if rank:
             stats.rank = rank
         return stats
+
+    def is_ignored(self, nickname: str | None) -> bool:
+        return normalize_nickname(nickname) in self.ignored_nickname_keys
+
+    def _is_ignored_staff(self, staff: StaffMember) -> bool:
+        return self.is_ignored(staff.nickname) or self.is_ignored(staff.full_name)

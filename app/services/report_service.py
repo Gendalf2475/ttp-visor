@@ -58,9 +58,14 @@ class ReportService:
         return "\n".join(lines)
 
     async def build_user_report_text(self, session: AsyncSession, nickname: str, period: Period) -> str:
+        if self.stats_service.is_ignored(nickname):
+            return "Этот сотрудник находится в ignore-list и не учитывается в статистике."
+
         staff = await StaffRepo(session).find_by_nickname(nickname)
         if staff is None:
             return "Модератор не найден в базе состава."
+        if self.stats_service.is_ignored(staff.nickname) or self.stats_service.is_ignored(staff.full_name):
+            return "Этот сотрудник находится в ignore-list и не учитывается в статистике."
 
         stats = await self.stats_service.collect_for_staff(session, period, staff)
         if stats.total == 0:

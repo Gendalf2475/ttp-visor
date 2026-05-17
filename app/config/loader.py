@@ -11,6 +11,10 @@ class BotAccessConfig(BaseModel):
     super_admin_ids: set[int] = Field(default_factory=set)
 
 
+class StaffConfig(BaseModel):
+    ignored_nicknames: list[str] = Field(default_factory=list)
+
+
 class TopicSourceConfig(BaseModel):
     enabled: bool = True
     chat_id: int
@@ -152,6 +156,7 @@ class SchedulerConfig(BaseModel):
 class AppConfig(BaseModel):
     timezone: str = "Europe/Moscow"
     bot: BotAccessConfig = Field(default_factory=BotAccessConfig)
+    staff: StaffConfig = Field(default_factory=StaffConfig)
     telegram_sources: TelegramSourcesConfig = Field(default_factory=TelegramSourcesConfig)
     report_target: ReportTargetConfig = Field(default_factory=ReportTargetConfig)
     reports: ReportsConfig = Field(default_factory=ReportsConfig)

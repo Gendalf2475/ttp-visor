@@ -101,11 +101,26 @@ class StaffRepo:
         staff.telegram_id = data.telegram_id
         staff.role = data.rank
         staff.is_active = data.is_active
+        staff.deactivated_at = None if data.is_active else synced_at
         staff.synced_at = synced_at
 
         await self.session.flush()
         await self._sync_active_period(staff, data.is_active, synced_at)
         return staff, created
+
+    async def deactivate_matching(self, data: StaffUpsert, synced_at: datetime) -> int:
+        staff = await self._find_existing(data)
+        if staff is None:
+            return 0
+
+        was_active = staff.is_active
+        staff.is_active = False
+        staff.deactivated_at = synced_at
+        staff.synced_at = synced_at
+
+        await self.session.flush()
+        await self._sync_active_period(staff, False, synced_at)
+        return 1 if was_active else 0
 
     async def deactivate_missing_external_keys(self, external_keys: set[str], synced_at: datetime) -> int:
         conditions = [
@@ -125,7 +140,7 @@ class StaffRepo:
         result = await self.session.execute(
             update(StaffMember)
             .where(StaffMember.id.in_(ids))
-            .values(is_active=False, synced_at=synced_at)
+            .values(is_active=False, deactivated_at=synced_at, synced_at=synced_at)
         )
 
         await self.session.execute(

@@ -38,6 +38,7 @@ reports:
   full_report_show_zero_activity_staff: false
   compact_top_limit: 5
   compact_show_extra_directions: false
+  extra_occupations_display_mode: stats_only
   show_zero_support_without_extra: false
   show_zero_kt_without_extra: false
 

@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config.loader import AppConfig
 from app.db.models.staff import StaffMember
 from app.db.repositories.staff_repo import StaffRepo
-from app.services.stats_service import ModeratorStats, PunishmentBreakdown, StatsReport, StatsService
+from app.services.stats_service import (
+    ExtraOccupationView,
+    ModeratorStats,
+    PunishmentBreakdown,
+    StatsReport,
+    StatsService,
+)
 from app.utils.dates import Period
 from app.utils.messages import safe_send_message
+from app.utils.text import normalize_nickname
 
 
 DIRECTION_ALIASES = {
@@ -90,7 +95,10 @@ class ReportService:
             )
         )
 
-        if self.config.reports.compact_show_extra_directions:
+        if (
+            self.config.reports.compact_show_extra_directions
+            and self.config.reports.extra_occupations_display_mode != "none"
+        ):
             lines.extend(["", *self._format_compact_extra_directions(report.rows)])
 
         lines.extend(
@@ -256,7 +264,7 @@ class ReportService:
         lines = [
             f"{index}. {row.name}",
             f"🏷 Ранг: {row.rank or 'нет'}",
-            f"💼 Доп. занятость: {_extras_inline(row)}",
+            f"💼 Доп. занятость: {self._extras_inline_for_report(row)}",
         ]
         if show_support:
             lines.append(f"🎫 Поддержка: {row.support_tickets}")
@@ -278,25 +286,34 @@ class ReportService:
     def _full_report_rows(self, rows: list[ModeratorStats]) -> list[ModeratorStats]:
         if self.config.reports.full_report_show_zero_activity_staff:
             return rows
-        return [row for row in rows if row.total > 0 or row.extra_occupations]
+        return [row for row in rows if row.total > 0 or self._display_extra_occupations(row)]
 
     def _format_compact_extra_directions(self, rows: list[ModeratorStats]) -> list[str]:
-        groups = [
-            ("🎫 ТП", _has_support_extra),
-            ("🧾 КТ", _has_kt_extra),
-            ("🌐 Соцсети", _has_social_extra),
-        ]
+        groups: dict[str, dict[str, str]] = {}
+        for row in rows:
+            for extra in self._display_extra_occupations(row):
+                label = _compact_extra_label(extra)
+                groups.setdefault(label, {})[row.name.lower()] = row.name
+
         lines = ["💼 Доп. направления:"]
-        has_data = False
-        for label, predicate in groups:
-            names = _extra_direction_names(rows, predicate)
-            if not names:
-                continue
-            has_data = True
+        for label in sorted(groups):
+            names = [groups[label][key] for key in sorted(groups[label])]
             lines.append(f"{label}: {', '.join(names)}")
-        if not has_data:
+        if len(lines) == 1:
             lines.append("нет данных")
         return lines
+
+    def _extras_inline_for_report(self, row: ModeratorStats) -> str:
+        extras = self._display_extra_occupations(row)
+        if not extras:
+            return "нет"
+        return ", ".join(extra.short_label for extra in extras)
+
+    def _display_extra_occupations(self, row: ModeratorStats) -> list[ExtraOccupationView]:
+        return _filter_extra_occupations(
+            row.extra_occupations,
+            self.config.reports.extra_occupations_display_mode,
+        )
 
     def _format_punishments_direction(self, report: StatsReport) -> str:
         totals = report.totals.punishments
@@ -384,36 +401,61 @@ def _extras_inline(row: ModeratorStats | StaffMember) -> str:
 
 
 def _has_support_extra(row: ModeratorStats) -> bool:
-    return _has_extra_with_markers(
-        row,
-        markers=("тп", "тех", "поддерж", "техническая поддержка", "поддержка"),
-    )
+    return any(_is_support_extra(extra) for extra in row.extra_occupations)
 
 
 def _has_kt_extra(row: ModeratorStats) -> bool:
-    return _has_extra_with_markers(
-        row,
-        markers=("кт", "контроль тикетов", "проверка тикетов"),
+    return any(_is_kt_extra(extra) for extra in row.extra_occupations)
+
+
+def _filter_extra_occupations(
+    extras: list[ExtraOccupationView],
+    mode: str,
+) -> list[ExtraOccupationView]:
+    if mode == "none":
+        return []
+    if mode == "all":
+        return extras
+    return [extra for extra in extras if _is_stats_extra(extra)]
+
+
+def _is_stats_extra(extra: ExtraOccupationView) -> bool:
+    return _is_kt_extra(extra) or _is_support_extra(extra)
+
+
+def _is_kt_extra(extra: ExtraOccupationView) -> bool:
+    occupation = normalize_nickname(extra.occupation)
+    direction = normalize_nickname(extra.direction)
+    return (
+        "кт" in occupation
+        or "контроль тикетов" in occupation
+        or "контроль тикетов" in direction
+        or "проверка тикетов" in direction
     )
 
 
-def _has_social_extra(row: ModeratorStats) -> bool:
-    return _has_extra_with_markers(row, markers=("соц", "социаль"))
+def _is_support_extra(extra: ExtraOccupationView) -> bool:
+    occupation = normalize_nickname(extra.occupation)
+    direction = normalize_nickname(extra.direction)
+    return (
+        "тп" in occupation
+        or "тех" in occupation
+        or "поддерж" in occupation
+        or "техническая поддержка" in direction
+        or "поддержка" in direction
+    )
 
 
-def _has_extra_with_markers(row: ModeratorStats, markers: tuple[str, ...]) -> bool:
-    for extra in row.extra_occupations:
-        text = f"{extra.direction} {extra.occupation}".lower()
-        if any(marker in text for marker in markers):
-            return True
-    return False
+def _is_social_extra(extra: ExtraOccupationView) -> bool:
+    text = normalize_nickname(f"{extra.direction} {extra.occupation}")
+    return "соц" in text or "социаль" in text
 
 
-def _extra_direction_names(rows: list[ModeratorStats], predicate: Callable[[ModeratorStats], bool]) -> list[str]:
-    names_by_key: dict[str, str] = {}
-    for row in rows:
-        if not predicate(row):
-            continue
-        key = row.name.lower()
-        names_by_key.setdefault(key, row.name)
-    return [names_by_key[key] for key in sorted(names_by_key)]
+def _compact_extra_label(extra: ExtraOccupationView) -> str:
+    if _is_support_extra(extra):
+        return "🎫 ТП"
+    if _is_kt_extra(extra):
+        return "🧾 КТ"
+    if _is_social_extra(extra):
+        return "🌐 Соцсети"
+    return f"💼 {extra.occupation or extra.direction}"

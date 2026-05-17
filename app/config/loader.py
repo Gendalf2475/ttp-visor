@@ -58,6 +58,7 @@ class ReportsConfig(BaseModel):
     full_report_show_zero_activity_staff: bool = False
     compact_top_limit: int = Field(default=5, ge=1)
     compact_show_extra_directions: bool = False
+    extra_occupations_display_mode: Literal["all", "stats_only", "none"] = "stats_only"
     show_zero_support_without_extra: bool = False
     show_zero_kt_without_extra: bool = False
 

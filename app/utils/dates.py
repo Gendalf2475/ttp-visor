@@ -108,6 +108,14 @@ def parse_period_expression(tz_name: str, expression: str | None) -> Period:
 
     parts = expression.strip().split()
     if len(parts) == 2:
-        return custom_period(tz_name, date.fromisoformat(parts[0]), date.fromisoformat(parts[1]))
+        return custom_period(tz_name, parse_date(parts[0]), parse_date(parts[1]))
 
     return period_by_key(tz_name, parts[0])
+
+
+def parse_date(value: str) -> date:
+    value = value.strip()
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return datetime.strptime(value, "%d.%m.%Y").date()

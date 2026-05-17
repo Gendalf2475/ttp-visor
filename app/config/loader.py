@@ -48,9 +48,10 @@ class ReportTargetConfig(BaseModel):
     topic_id: int | None = None
 
 
-class GoogleSheetsConfig(BaseModel):
+class StaffGoogleSheetConfig(BaseModel):
     enabled: bool = True
     spreadsheet_id: str | None = "1Ss0Eq_zqrbQh2JQ4cr4d1AVG8-7-OPeHorSdh5-umII"
+    sheet_name: str = "Администрация | Штат"
     range_name: str = "'Администрация | Штат'!A4:E"
     active_mode: Literal["presence_in_sheet"] = "presence_in_sheet"
     external_key_column: int | None = None
@@ -64,6 +65,42 @@ class GoogleSheetsConfig(BaseModel):
     aliases_column: int | None = None
     active_values: set[str] = Field(default_factory=lambda: {"active", "yes", "true", "1", "да", "активен"})
     header_rows: int = 0
+
+
+class ExtraOccupationsGoogleSheetConfig(BaseModel):
+    enabled: bool = True
+    spreadsheet_id: str | None = "1Ss0Eq_zqrbQh2JQ4cr4d1AVG8-7-OPeHorSdh5-umII"
+    sheet_name: str = "Таблица | Доп. занятость"
+    range_name: str = "'Таблица | Доп. занятость'!A1:C200"
+
+
+class GoogleSheetsConfig(StaffGoogleSheetConfig):
+    staff: StaffGoogleSheetConfig | None = None
+    extra_occupations: ExtraOccupationsGoogleSheetConfig = Field(
+        default_factory=ExtraOccupationsGoogleSheetConfig
+    )
+
+    def staff_config(self) -> StaffGoogleSheetConfig:
+        if self.staff is not None:
+            return self.staff
+        return StaffGoogleSheetConfig(
+            enabled=self.enabled,
+            spreadsheet_id=self.spreadsheet_id,
+            sheet_name=self.sheet_name,
+            range_name=self.range_name,
+            active_mode=self.active_mode,
+            external_key_column=self.external_key_column,
+            rank_column=self.rank_column,
+            nickname_column=self.nickname_column,
+            mentor_column=self.mentor_column,
+            real_name_column=self.real_name_column,
+            telegram_column=self.telegram_column,
+            telegram_id_column=self.telegram_id_column,
+            active_column=self.active_column,
+            aliases_column=self.aliases_column,
+            active_values=self.active_values,
+            header_rows=self.header_rows,
+        )
 
 
 class ParserRulesConfig(BaseModel):

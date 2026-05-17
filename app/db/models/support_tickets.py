@@ -36,5 +36,6 @@ class SupportTicket(Base):
 
 Index("ix_support_tickets_closed_at", SupportTicket.closed_at)
 Index("ix_support_tickets_staff_id", SupportTicket.staff_id)
+Index("ix_support_tickets_staff_date", SupportTicket.staff_id, SupportTicket.closed_at)
 Index("ix_support_tickets_sender_user_id", SupportTicket.sender_user_id)
 Index("ix_support_tickets_source", SupportTicket.chat_id, SupportTicket.message_id)

@@ -57,6 +57,17 @@ class StaffRepo:
         )
         return list(result)
 
+    async def find_by_nickname(self, nickname: str) -> StaffMember | None:
+        normalized = nickname.strip().lower()
+        return await self.session.scalar(
+            select(StaffMember).where(
+                or_(
+                    func.lower(StaffMember.nickname) == normalized,
+                    func.lower(StaffMember.full_name) == normalized,
+                )
+            )
+        )
+
     async def upsert(self, data: StaffUpsert, synced_at: datetime) -> tuple[StaffMember, bool]:
         staff = await self._find_existing(data)
         created = False

@@ -29,19 +29,26 @@ report_target:
   topic_id: 5
 
 google_sheets:
-  enabled: true
-  spreadsheet_id: "1Ss0Eq_zqrbQh2JQ4cr4d1AVG8-7-OPeHorSdh5-umII"
-  range_name: "'Администрация | Штат'!A4:E"
-  active_mode: presence_in_sheet
-  header_rows: 0
-  rank_column: 0
-  nickname_column: 1
-  mentor_column: 2
-  real_name_column: 3
-  telegram_column: 4
-  telegram_id_column:
-  active_column:
-  aliases_column:
+  staff:
+    enabled: true
+    spreadsheet_id: "1Ss0Eq_zqrbQh2JQ4cr4d1AVG8-7-OPeHorSdh5-umII"
+    sheet_name: "Администрация | Штат"
+    range_name: "'Администрация | Штат'!A4:E"
+    active_mode: presence_in_sheet
+    header_rows: 0
+    rank_column: 0
+    nickname_column: 1
+    mentor_column: 2
+    real_name_column: 3
+    telegram_column: 4
+    telegram_id_column:
+    active_column:
+    aliases_column:
+  extra_occupations:
+    enabled: true
+    spreadsheet_id: "1Ss0Eq_zqrbQh2JQ4cr4d1AVG8-7-OPeHorSdh5-umII"
+    sheet_name: "Таблица | Доп. занятость"
+    range_name: "'Таблица | Доп. занятость'!A1:C200"
 
 parsers:
   support:

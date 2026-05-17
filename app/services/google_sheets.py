@@ -9,7 +9,7 @@ from pathlib import Path
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from app.config.loader import GoogleSheetsConfig
+from app.config.loader import ExtraOccupationsGoogleSheetConfig, GoogleSheetsConfig, StaffGoogleSheetConfig
 from app.config.settings import Settings
 
 
@@ -30,27 +30,54 @@ class StaffSheetRow:
     aliases: list[str] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class ExtraOccupationSheetRow:
+    nickname: str
+    direction: str
+    occupation: str
+    position: str
+
+
 class GoogleSheetsClient:
     def __init__(self, settings: Settings, config: GoogleSheetsConfig):
         self.settings = settings
         self.config = config
 
     async def fetch_staff_rows(self) -> list[StaffSheetRow]:
-        if not self.config.enabled:
+        staff_config = self.config.staff_config()
+        if not staff_config.enabled:
             return []
-        if not self.config.spreadsheet_id:
+        if not staff_config.spreadsheet_id:
             raise ValueError("google_sheets.spreadsheet_id is required when Google sync is enabled")
 
-        values = await asyncio.to_thread(self._fetch_values)
-        return [self._parse_row(row) for row in values[self.config.header_rows :] if self._row_has_nickname(row)]
+        values = await asyncio.to_thread(self._fetch_values, staff_config.spreadsheet_id, staff_config.range_name)
+        return [
+            self._parse_staff_row(row, staff_config)
+            for row in values[staff_config.header_rows :]
+            if self._row_has_nickname(row, staff_config)
+        ]
 
-    def _fetch_values(self) -> list[list[str]]:
+    async def fetch_extra_occupation_rows(self) -> list[ExtraOccupationSheetRow]:
+        extra_config = self.config.extra_occupations
+        if not extra_config.enabled:
+            return []
+        if not extra_config.spreadsheet_id:
+            raise ValueError("google_sheets.extra_occupations.spreadsheet_id is required when sync is enabled")
+
+        values = await asyncio.to_thread(
+            self._fetch_values,
+            extra_config.spreadsheet_id,
+            extra_config.range_name,
+        )
+        return self._parse_extra_occupation_rows(values, extra_config)
+
+    def _fetch_values(self, spreadsheet_id: str, range_name: str) -> list[list[str]]:
         credentials = self._load_credentials()
         service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
         result = (
             service.spreadsheets()
             .values()
-            .get(spreadsheetId=self.config.spreadsheet_id, range=self.config.range_name)
+            .get(spreadsheetId=spreadsheet_id, range=range_name)
             .execute()
         )
         return result.get("values", [])
@@ -65,23 +92,23 @@ class GoogleSheetsClient:
             raise ValueError("GOOGLE_CREDENTIALS_FILE or GOOGLE_CREDENTIALS_JSON must be provided")
         return service_account.Credentials.from_service_account_file(Path(credentials_file), scopes=SCOPES)
 
-    def _parse_row(self, row: list[str]) -> StaffSheetRow:
-        nickname = self._cell(row, self.config.nickname_column).strip()
-        rank = self._cell_optional(row, self.config.rank_column)
-        mentor = self._cell_optional(row, self.config.mentor_column)
-        real_name = self._cell_optional(row, self.config.real_name_column)
-        telegram_raw = self._cell_optional(row, self.config.telegram_column)
+    def _parse_staff_row(self, row: list[str], config: StaffGoogleSheetConfig) -> StaffSheetRow:
+        nickname = self._cell(row, config.nickname_column).strip()
+        rank = self._cell_optional(row, config.rank_column)
+        mentor = self._cell_optional(row, config.mentor_column)
+        real_name = self._cell_optional(row, config.real_name_column)
+        telegram_raw = self._cell_optional(row, config.telegram_column)
         telegram_username = self._normalize_telegram_username(telegram_raw)
-        external_key = self._cell_optional(row, self.config.external_key_column)
-        telegram_id = self._parse_int(self._cell_optional(row, self.config.telegram_id_column))
-        aliases = self._parse_aliases(self._cell_optional(row, self.config.aliases_column))
+        external_key = self._cell_optional(row, config.external_key_column)
+        telegram_id = self._parse_int(self._cell_optional(row, config.telegram_id_column))
+        aliases = self._parse_aliases(self._cell_optional(row, config.aliases_column))
 
         is_active = bool(nickname)
-        if self.config.active_mode == "presence_in_sheet":
+        if config.active_mode == "presence_in_sheet":
             is_active = bool(nickname)
-        elif self.config.active_column is not None:
-            active_value = (self._cell_optional(row, self.config.active_column) or "").strip().lower()
-            is_active = active_value in self.config.active_values
+        elif config.active_column is not None:
+            active_value = (self._cell_optional(row, config.active_column) or "").strip().lower()
+            is_active = active_value in config.active_values
 
         return StaffSheetRow(
             nickname=nickname,
@@ -96,8 +123,48 @@ class GoogleSheetsClient:
             aliases=aliases,
         )
 
-    def _row_has_nickname(self, row: list[str]) -> bool:
-        return bool(self._cell(row, self.config.nickname_column).strip())
+    def _parse_extra_occupation_rows(
+        self,
+        rows: list[list[str]],
+        config: ExtraOccupationsGoogleSheetConfig,
+    ) -> list[ExtraOccupationSheetRow]:
+        del config
+        parsed: list[ExtraOccupationSheetRow] = []
+        current_direction: str | None = None
+
+        for row in rows:
+            cells = [self._cell(row, index).strip() for index in range(3)]
+            non_empty = [cell for cell in cells if cell]
+            if not non_empty:
+                continue
+
+            lowered = {cell.lower() for cell in cells}
+            if {"ник", "занятость", "должность"}.issubset(lowered):
+                continue
+
+            nickname, occupation, position = cells
+            if len(non_empty) == 1:
+                current_direction = non_empty[0]
+                continue
+
+            if not current_direction:
+                current_direction = non_empty[0]
+                continue
+
+            if nickname and occupation and position:
+                parsed.append(
+                    ExtraOccupationSheetRow(
+                        nickname=nickname,
+                        direction=current_direction,
+                        occupation=occupation,
+                        position=position,
+                    )
+                )
+
+        return parsed
+
+    def _row_has_nickname(self, row: list[str], config: StaffGoogleSheetConfig) -> bool:
+        return bool(self._cell(row, config.nickname_column).strip())
 
     @staticmethod
     def _cell(row: list[str], index: int) -> str:

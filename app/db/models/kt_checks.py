@@ -37,5 +37,6 @@ class KTCheck(Base):
 
 Index("ix_kt_checks_checked_at", KTCheck.checked_at)
 Index("ix_kt_checks_staff_id", KTCheck.staff_id)
+Index("ix_kt_checks_staff_date", KTCheck.staff_id, KTCheck.checked_at)
 Index("ix_kt_checks_sender_user_id", KTCheck.sender_user_id)
 Index("ix_kt_checks_source", KTCheck.chat_id, KTCheck.message_id)

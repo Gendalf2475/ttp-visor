@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -62,3 +62,36 @@ class StaffActivePeriod(Base):
 
 Index("ix_staff_active_periods_staff_id", StaffActivePeriod.staff_id)
 Index("ix_staff_active_periods_open", StaffActivePeriod.staff_id, StaffActivePeriod.ended_at)
+
+
+class StaffExtraOccupation(Base):
+    __tablename__ = "staff_extra_occupations"
+    __table_args__ = (
+        UniqueConstraint(
+            "nickname",
+            "direction",
+            "occupation",
+            "position",
+            name="uq_staff_extra_occupations_identity",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nickname: Mapped[str] = mapped_column(String(255))
+    direction: Mapped[str] = mapped_column(String(255))
+    occupation: Mapped[str] = mapped_column(String(255))
+    position: Mapped[str] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+Index("ix_staff_extra_occupations_nickname", StaffExtraOccupation.nickname)
+Index("ix_staff_extra_occupations_is_active", StaffExtraOccupation.is_active)

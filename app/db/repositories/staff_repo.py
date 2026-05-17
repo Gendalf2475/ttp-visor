@@ -7,7 +7,7 @@ from sqlalchemy import String, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.staff import StaffActivePeriod, StaffMember
-from app.utils.text import clean_username, normalize_alias
+from app.utils.text import clean_username, normalize_alias, normalize_nickname
 
 
 @dataclass(slots=True)
@@ -32,12 +32,33 @@ class StaffRepo:
         return await self.session.get(StaffMember, staff_id)
 
     async def list_active(self) -> list[StaffMember]:
+        return await self.get_active_members()
+
+    async def get_active_members(self) -> list[StaffMember]:
         result = await self.session.scalars(
             select(StaffMember)
             .where(StaffMember.is_active.is_(True))
             .order_by(StaffMember.nickname, StaffMember.full_name)
         )
         return list(result)
+
+    async def get_many_by_nicknames_ci(self, nicknames: set[str] | list[str]) -> dict[str, StaffMember]:
+        normalized = {normalize_nickname(nickname) for nickname in nicknames}
+        normalized.discard("")
+        if not normalized:
+            return {}
+
+        result = await self.session.scalars(select(StaffMember).order_by(StaffMember.is_active.desc()))
+        by_key: dict[str, StaffMember] = {}
+        for staff in result:
+            for value in (staff.nickname, staff.full_name):
+                key = normalize_nickname(value)
+                if key and key in normalized and key not in by_key:
+                    by_key[key] = staff
+        return by_key
+
+    async def get_by_nickname_ci(self, nickname: str) -> StaffMember | None:
+        return (await self.get_many_by_nicknames_ci([nickname])).get(normalize_nickname(nickname))
 
     async def search(self, query: str, limit: int = 10) -> list[StaffMember]:
         normalized = f"%{query.strip().lower()}%"
@@ -58,15 +79,7 @@ class StaffRepo:
         return list(result)
 
     async def find_by_nickname(self, nickname: str) -> StaffMember | None:
-        normalized = nickname.strip().lower()
-        return await self.session.scalar(
-            select(StaffMember).where(
-                or_(
-                    func.lower(StaffMember.nickname) == normalized,
-                    func.lower(StaffMember.full_name) == normalized,
-                )
-            )
-        )
+        return await self.get_by_nickname_ci(nickname)
 
     async def upsert(self, data: StaffUpsert, synced_at: datetime) -> tuple[StaffMember, bool]:
         staff = await self._find_existing(data)
@@ -160,13 +173,12 @@ class StaffRepo:
 
         normalized_nickname = normalize_alias(data.nickname)
         if normalized_nickname:
-            return await self.session.scalar(
-                select(StaffMember).where(
-                    or_(
-                        func.lower(StaffMember.nickname) == normalized_nickname,
-                        func.lower(StaffMember.full_name) == normalized_nickname,
-                    )
-                )
-            )
+            result = await self.session.scalars(select(StaffMember))
+            for staff in result:
+                if normalized_nickname in {
+                    normalize_nickname(staff.nickname),
+                    normalize_nickname(staff.full_name),
+                }:
+                    return staff
 
         return None

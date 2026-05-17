@@ -4,12 +4,25 @@ import re
 from html import escape
 
 
+ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\ufeff"
+
+
+def normalize_nickname(value: object | None) -> str:
+    if value is None:
+        return ""
+
+    normalized = str(value).replace("\u00a0", " ").strip()
+    for char in ZERO_WIDTH_CHARS:
+        normalized = normalized.replace(char, "")
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.lower()
+
+
 def normalize_alias(value: str | None) -> str | None:
     if not value:
         return None
-    normalized = value.strip().lower()
+    normalized = normalize_nickname(value)
     normalized = normalized.removeprefix("@")
-    normalized = re.sub(r"\s+", " ", normalized)
     return normalized or None
 
 
@@ -44,4 +57,3 @@ def split_telegram_text(text: str, limit: int = 3900) -> list[str]:
         chunks.append("".join(current).rstrip())
 
     return chunks
-

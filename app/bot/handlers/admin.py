@@ -8,10 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config.loader import AppConfig
 from app.db.models.staff import StaffExtraOccupation
 from app.db.repositories.extra_occupations_repo import ExtraOccupationsRepo
+from app.db.repositories.staff_repo import StaffRepo
 from app.services.report_service import ReportService
 from app.services.staff_sync import StaffSyncService
-from app.utils.dates import parse_period_expression
-from app.utils.text import html_escape, split_telegram_text
+from app.utils.dates import current_week, parse_period_expression
+from app.utils.text import html_escape, normalize_nickname, split_telegram_text
 
 
 router = Router(name="admin")
@@ -28,6 +29,7 @@ HELP_TEXT = """TTP VISOR доступен только супер-админам
 /stats_direction направление [period] - отчёт по направлению
 /report [period] - отправить отчёт в настроенный чат
 /extras [ник] - показать доп. занятости
+/debug_staff ник - проверить staff/extras/events lookup
 /staff_find текст - найти модератора
 /bind staff_id alias [telegram_user_id] - привязать алиас к модератору
 /unbind alias - удалить привязку
@@ -135,6 +137,71 @@ async def extras(
 
     for chunk in split_telegram_text(text):
         await message.answer(chunk)
+
+
+@router.message(Command("debug_staff"))
+async def debug_staff(
+    message: Message,
+    command: CommandObject,
+    app_config: AppConfig,
+    report_service: ReportService,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    nickname = (command.args or "").strip()
+    if not nickname:
+        await message.answer("Использование: /debug_staff ник")
+        return
+
+    normalized = normalize_nickname(nickname)
+    async with session_factory() as session:
+        staff = await StaffRepo(session).get_by_nickname_ci(nickname)
+        extras_rows = await ExtraOccupationsRepo(session).get_active_by_nickname_ci(nickname)
+        stats = (
+            await report_service.stats_service.collect_for_staff(
+                session,
+                current_week(app_config.timezone),
+                staff,
+            )
+            if staff
+            else None
+        )
+
+    lines = [
+        f"🛠 <b>Staff debug: {html_escape(nickname)}</b>",
+        "",
+        "Lookup:",
+        f"input: {html_escape(nickname)}",
+        f"normalized: {html_escape(normalized)}",
+        "",
+        "Staff:",
+        f"found: {'yes' if staff else 'no'}",
+        f"nickname: {html_escape((staff.nickname or staff.full_name) if staff else 'none')}",
+        f"rank: {html_escape((staff.rank or 'none') if staff else 'none')}",
+        f"is_active: {str(staff.is_active).lower() if staff else 'none'}",
+        "",
+        "Extra occupations:",
+    ]
+
+    if extras_rows:
+        for index, extra in enumerate(extras_rows, start=1):
+            lines.append(
+                f"{index}. {html_escape(extra.direction)} — "
+                f"{html_escape(extra.occupation)} — {html_escape(extra.position)}"
+            )
+    else:
+        lines.append("none")
+
+    lines.extend(
+        [
+            "",
+            "Events current week:",
+            f"support: {stats.support_tickets if stats else 0}",
+            f"kt: {stats.kt_checks if stats else 0}",
+            f"punishments: {stats.punishments.total if stats else 0}",
+        ]
+    )
+
+    await message.answer("\n".join(lines))
 
 
 def _format_all_extras(rows: list[StaffExtraOccupation]) -> str:

@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.staff import StaffExtraOccupation
+from app.utils.text import normalize_nickname
 
 
 @dataclass(slots=True)
@@ -31,6 +32,9 @@ class ExtraOccupationsRepo:
         self.session = session
 
     async def list_active(self, nickname: str | None = None) -> list[StaffExtraOccupation]:
+        if nickname:
+            return await self.get_active_by_nickname_ci(nickname)
+
         stmt = (
             select(StaffExtraOccupation)
             .where(StaffExtraOccupation.is_active.is_(True))
@@ -41,30 +45,37 @@ class ExtraOccupationsRepo:
                 StaffExtraOccupation.position,
             )
         )
-        if nickname:
-            stmt = stmt.where(func.lower(StaffExtraOccupation.nickname) == nickname.strip().lower())
 
         result = await self.session.scalars(stmt)
         return list(result)
 
     async def list_active_for_nicknames(self, nicknames: list[str]) -> dict[str, list[StaffExtraOccupation]]:
-        normalized = {nickname.strip().lower() for nickname in nicknames if nickname and nickname.strip()}
+        return await self.get_many_active_by_nicknames_ci(nicknames)
+
+    async def get_many_active_by_nicknames_ci(
+        self,
+        nicknames: set[str] | list[str],
+    ) -> dict[str, list[StaffExtraOccupation]]:
+        normalized = {normalize_nickname(nickname) for nickname in nicknames}
+        normalized.discard("")
         if not normalized:
             return {}
 
         result = await self.session.scalars(
             select(StaffExtraOccupation)
-            .where(
-                StaffExtraOccupation.is_active.is_(True),
-                func.lower(StaffExtraOccupation.nickname).in_(normalized),
-            )
+            .where(StaffExtraOccupation.is_active.is_(True))
             .order_by(StaffExtraOccupation.direction, StaffExtraOccupation.occupation)
         )
 
         grouped: dict[str, list[StaffExtraOccupation]] = {}
         for occupation in result:
-            grouped.setdefault(occupation.nickname.lower(), []).append(occupation)
+            key = normalize_nickname(occupation.nickname)
+            if key in normalized:
+                grouped.setdefault(key, []).append(occupation)
         return grouped
+
+    async def get_active_by_nickname_ci(self, nickname: str) -> list[StaffExtraOccupation]:
+        return (await self.get_many_active_by_nicknames_ci([nickname])).get(normalize_nickname(nickname), [])
 
     async def sync(
         self,
@@ -131,21 +142,18 @@ class ExtraOccupationsRepo:
         occupation: str,
         position: str,
     ) -> StaffExtraOccupation | None:
-        return await self.session.scalar(
-            select(StaffExtraOccupation).where(
-                func.lower(StaffExtraOccupation.nickname) == nickname,
-                func.lower(StaffExtraOccupation.direction) == direction,
-                func.lower(StaffExtraOccupation.occupation) == occupation,
-                func.lower(StaffExtraOccupation.position) == position,
-            )
-        )
+        wanted = self._key(nickname, direction, occupation, position)
+        result = await self.session.scalars(select(StaffExtraOccupation))
+        for row in result:
+            if self._key(row.nickname, row.direction, row.occupation, row.position) == wanted:
+                return row
+        return None
 
     @staticmethod
     def _key(nickname: str, direction: str, occupation: str, position: str) -> tuple[str, str, str, str]:
         return (
-            nickname.strip().lower(),
+            normalize_nickname(nickname),
             direction.strip().lower(),
             occupation.strip().lower(),
             position.strip().lower(),
         )
-

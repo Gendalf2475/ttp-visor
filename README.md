@@ -62,6 +62,7 @@ docker compose up -d --build
 - `/stats_direction <направление> [period]` - отчёт по направлению.
 - `/report [period]` - отправить отчёт в настроенный чат.
 - `/extras [ник]` - показать активные доп. занятости.
+- `/debug_staff <ник>` - проверить normalized lookup состава, доп. занятостей и событий недели.
 - `/debug` - показать `chat_id`, `topic_id` и данные текущего сообщения.
 - `/staff_find <текст>` - поиск модератора.
 - `/bind <staff_id> <alias> [telegram_user_id]` - ручная привязка алиаса из сообщений к модератору.

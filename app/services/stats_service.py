@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
@@ -10,11 +11,13 @@ from app.db.models.punishments import Punishment
 from app.db.models.staff import StaffMember
 from app.db.models.support_tickets import SupportTicket
 from app.db.repositories.extra_occupations_repo import ExtraOccupationsRepo
+from app.db.repositories.staff_repo import StaffRepo
 from app.services.parser_punishments import classify_punishment_type, is_rule_missing
 from app.utils.dates import Period
-from app.utils.text import normalize_alias
+from app.utils.text import normalize_nickname
 
 
+logger = logging.getLogger(__name__)
 PUNISHMENT_TYPES = ("ban", "mute", "warn", "unban", "unmute", "unwarn")
 
 
@@ -65,6 +68,7 @@ class PunishmentBreakdown:
 @dataclass(slots=True)
 class ModeratorStats:
     name: str
+    key: str
     staff_id: int | None = None
     rank: str | None = None
     support_tickets: int = 0
@@ -84,7 +88,7 @@ class StatsReport:
 
     @property
     def totals(self) -> ModeratorStats:
-        total = ModeratorStats(name="Итого")
+        total = ModeratorStats(name="Итого", key="total")
         for row in self.rows:
             total.support_tickets += row.support_tickets
             total.kt_checks += row.kt_checks
@@ -93,13 +97,30 @@ class StatsReport:
 
 
 class StatsService:
-    async def collect(self, session: AsyncSession, period: Period) -> StatsReport:
-        buckets: dict[tuple[str, str | int], ModeratorStats] = {}
+    async def collect(
+        self,
+        session: AsyncSession,
+        period: Period,
+        *,
+        show_zero_activity_staff: bool = True,
+    ) -> StatsReport:
+        buckets: dict[str, ModeratorStats] = {}
+
+        if show_zero_activity_staff:
+            for staff in await StaffRepo(session).get_active_members():
+                self._bucket(
+                    buckets,
+                    staff_id=staff.id,
+                    alias=staff.nickname or staff.full_name,
+                    staff_nickname=staff.nickname,
+                    staff_full_name=staff.full_name,
+                    rank=staff.rank,
+                )
 
         await self._collect_support(session, period, buckets)
         await self._collect_kt(session, period, buckets)
         await self._collect_punishments(session, period, buckets)
-        await self._attach_staff_details(session, buckets)
+        await self._enrich_rows(session, buckets)
 
         rows = sorted(
             buckets.values(),
@@ -108,117 +129,207 @@ class StatsService:
         return StatsReport(period=period, rows=rows)
 
     async def collect_for_staff(self, session: AsyncSession, period: Period, staff: StaffMember) -> ModeratorStats:
-        report = await self.collect(session, period)
+        report = await self.collect(session, period, show_zero_activity_staff=True)
+        staff_key = normalize_nickname(staff.nickname or staff.full_name)
         for row in report.rows:
-            if row.staff_id == staff.id or row.name.lower() == (staff.nickname or staff.full_name).lower():
+            if row.staff_id == staff.id or row.key == staff_key:
                 row.staff_id = staff.id
+                row.name = staff.nickname or staff.full_name
                 row.rank = staff.rank
                 return row
 
         stats = ModeratorStats(
             name=staff.nickname or staff.full_name,
+            key=staff_key,
             staff_id=staff.id,
             rank=staff.rank,
         )
-        await self._attach_extras_for_rows(session, [stats])
+        await self._enrich_rows(session, {staff_key: stats})
         return stats
 
     async def _collect_support(
         self,
         session: AsyncSession,
         period: Period,
-        buckets: dict[tuple[str, str | int], ModeratorStats],
+        buckets: dict[str, ModeratorStats],
     ) -> None:
         result = await session.execute(
-            select(SupportTicket.staff_id, SupportTicket.moderator_alias, func.count())
+            select(
+                SupportTicket.staff_id,
+                SupportTicket.moderator_alias,
+                StaffMember.nickname,
+                StaffMember.full_name,
+                StaffMember.rank,
+                func.count(),
+            )
+            .outerjoin(StaffMember, SupportTicket.staff_id == StaffMember.id)
             .where(SupportTicket.closed_at >= period.start, SupportTicket.closed_at < period.end)
-            .group_by(SupportTicket.staff_id, SupportTicket.moderator_alias)
+            .group_by(
+                SupportTicket.staff_id,
+                SupportTicket.moderator_alias,
+                StaffMember.nickname,
+                StaffMember.full_name,
+                StaffMember.rank,
+            )
         )
-        for staff_id, alias, count in result.all():
-            self._bucket(buckets, staff_id, alias).support_tickets += int(count)
+        for staff_id, alias, staff_nickname, staff_full_name, rank, count in result.all():
+            self._bucket(
+                buckets,
+                staff_id=staff_id,
+                alias=alias,
+                staff_nickname=staff_nickname,
+                staff_full_name=staff_full_name,
+                rank=rank,
+            ).support_tickets += int(count)
 
     async def _collect_kt(
         self,
         session: AsyncSession,
         period: Period,
-        buckets: dict[tuple[str, str | int], ModeratorStats],
+        buckets: dict[str, ModeratorStats],
     ) -> None:
         result = await session.execute(
-            select(KTCheck.staff_id, KTCheck.moderator_alias, func.count())
+            select(
+                KTCheck.staff_id,
+                KTCheck.moderator_alias,
+                StaffMember.nickname,
+                StaffMember.full_name,
+                StaffMember.rank,
+                func.count(),
+            )
+            .outerjoin(StaffMember, KTCheck.staff_id == StaffMember.id)
             .where(KTCheck.checked_at >= period.start, KTCheck.checked_at < period.end)
-            .group_by(KTCheck.staff_id, KTCheck.moderator_alias)
+            .group_by(
+                KTCheck.staff_id,
+                KTCheck.moderator_alias,
+                StaffMember.nickname,
+                StaffMember.full_name,
+                StaffMember.rank,
+            )
         )
-        for staff_id, alias, count in result.all():
-            self._bucket(buckets, staff_id, alias).kt_checks += int(count)
+        for staff_id, alias, staff_nickname, staff_full_name, rank, count in result.all():
+            self._bucket(
+                buckets,
+                staff_id=staff_id,
+                alias=alias,
+                staff_nickname=staff_nickname,
+                staff_full_name=staff_full_name,
+                rank=rank,
+            ).kt_checks += int(count)
 
     async def _collect_punishments(
         self,
         session: AsyncSession,
         period: Period,
-        buckets: dict[tuple[str, str | int], ModeratorStats],
+        buckets: dict[str, ModeratorStats],
     ) -> None:
         result = await session.execute(
             select(
                 Punishment.staff_id,
                 Punishment.moderator_alias,
+                StaffMember.nickname,
+                StaffMember.full_name,
+                StaffMember.rank,
                 Punishment.punishment_type,
                 Punishment.rule_missing,
                 Punishment.raw_text,
-            ).where(Punishment.punished_at >= period.start, Punishment.punished_at < period.end)
+            )
+            .outerjoin(StaffMember, Punishment.staff_id == StaffMember.id)
+            .where(Punishment.punished_at >= period.start, Punishment.punished_at < period.end)
         )
-        for staff_id, alias, punishment_type, rule_missing, raw_text in result.all():
+        for (
+            staff_id,
+            alias,
+            staff_nickname,
+            staff_full_name,
+            rank,
+            punishment_type,
+            rule_missing,
+            raw_text,
+        ) in result.all():
             resolved_type = punishment_type or classify_punishment_type(raw_text or "")
             resolved_rule_missing = bool(rule_missing) or is_rule_missing(raw_text or "")
-            self._bucket(buckets, staff_id, alias).punishments.add(resolved_type, resolved_rule_missing)
+            self._bucket(
+                buckets,
+                staff_id=staff_id,
+                alias=alias,
+                staff_nickname=staff_nickname,
+                staff_full_name=staff_full_name,
+                rank=rank,
+            ).punishments.add(resolved_type, resolved_rule_missing)
 
-    async def _attach_staff_details(
-        self,
-        session: AsyncSession,
-        buckets: dict[tuple[str, str | int], ModeratorStats],
-    ) -> None:
-        staff_ids = [stats.staff_id for stats in buckets.values() if stats.staff_id is not None]
-        if staff_ids:
-            result = await session.execute(
-                select(StaffMember.id, StaffMember.nickname, StaffMember.full_name, StaffMember.rank).where(
-                    StaffMember.id.in_(staff_ids)
-                )
-            )
-            details = {
-                staff_id: (nickname or full_name, rank)
-                for staff_id, nickname, full_name, rank in result.all()
-            }
-            for stats in buckets.values():
-                if stats.staff_id in details:
-                    stats.name, stats.rank = details[stats.staff_id]
+    async def _enrich_rows(self, session: AsyncSession, buckets: dict[str, ModeratorStats]) -> None:
+        rows = list(buckets.values())
+        nicknames = {row.name for row in rows if row.name}
 
-        await self._attach_extras_for_rows(session, list(buckets.values()))
-
-    async def _attach_extras_for_rows(self, session: AsyncSession, rows: list[ModeratorStats]) -> None:
-        extras = await ExtraOccupationsRepo(session).list_active_for_nicknames([row.name for row in rows])
+        staff_by_key = await StaffRepo(session).get_many_by_nicknames_ci(nicknames)
+        staff_found_by_row: dict[int, bool] = {}
         for row in rows:
+            key = normalize_nickname(row.name)
+            staff = staff_by_key.get(key)
+            staff_found_by_row[id(row)] = staff is not None
+            if not staff:
+                continue
+            row.staff_id = staff.id
+            row.name = staff.nickname or staff.full_name
+            row.key = normalize_nickname(row.name)
+            row.rank = staff.rank
+
+        enriched_nicknames = {row.name for row in rows if row.name}
+        extras_by_key = await ExtraOccupationsRepo(session).get_many_active_by_nicknames_ci(enriched_nicknames)
+
+        logger.info(
+            "Stats enrichment: staff_loaded=%s extras_loaded=%s nicknames=%s",
+            len(staff_by_key),
+            sum(len(items) for items in extras_by_key.values()),
+            sorted(enriched_nicknames),
+        )
+
+        for row in rows:
+            key = normalize_nickname(row.name)
             row.extra_occupations = [
                 ExtraOccupationView(
                     direction=extra.direction,
                     occupation=extra.occupation,
                     position=extra.position,
                 )
-                for extra in extras.get(row.name.lower(), [])
+                for extra in extras_by_key.get(key, [])
             ]
+            logger.info(
+                "Stats enrichment: nickname=%s key=%s staff_found=%s rank=%s extras=%s",
+                row.name,
+                key,
+                staff_found_by_row.get(id(row), False),
+                row.rank,
+                len(row.extra_occupations),
+            )
 
     def _bucket(
         self,
-        buckets: dict[tuple[str, str | int], ModeratorStats],
+        buckets: dict[str, ModeratorStats],
+        *,
         staff_id: int | None,
         alias: str | None,
+        staff_nickname: str | None,
+        staff_full_name: str | None,
+        rank: str | None,
     ) -> ModeratorStats:
-        if staff_id is not None:
-            key: tuple[str, str | int] = ("staff", staff_id)
-            name = alias or f"staff:{staff_id}"
-        else:
-            alias_key = normalize_alias(alias) or "unknown"
-            key = ("alias", alias_key)
-            name = alias or "Не распознано"
+        display_name = staff_nickname or staff_full_name or alias or "Не распознано"
+        key = normalize_nickname(display_name) or (f"staff:{staff_id}" if staff_id is not None else "unknown")
 
         if key not in buckets:
-            buckets[key] = ModeratorStats(name=name, staff_id=staff_id)
-        return buckets[key]
+            buckets[key] = ModeratorStats(
+                name=display_name,
+                key=key,
+                staff_id=staff_id,
+                rank=rank,
+            )
+
+        stats = buckets[key]
+        if staff_id is not None:
+            stats.staff_id = staff_id
+        if staff_nickname or staff_full_name:
+            stats.name = staff_nickname or staff_full_name or stats.name
+        if rank:
+            stats.rank = rank
+        return stats

@@ -12,6 +12,7 @@ from app.db.repositories.staff_repo import StaffRepo
 from app.services.report_service import ReportService
 from app.services.staff_sync import StaffSyncService
 from app.utils.dates import current_week, parse_period_expression
+from app.utils.messages import safe_answer
 from app.utils.text import html_escape, normalize_nickname, split_telegram_text
 
 
@@ -26,12 +27,12 @@ HELP_TEXT = """TTP VISOR доступен только супер-админам
 /sync_extra - синхронизировать доп. занятости
 /stats [period] - короткая сводка
 /stats_full [period] - полный отчёт
-/stats_user ник [period] - отчёт по модератору
-/stats_direction направление [period] - отчёт по направлению
+/stats_user [ник] [period] - отчёт по модератору
+/stats_direction [направление] [period] - отчёт по направлению
 /report [period] - отправить отчёт в настроенный чат
 /extras [ник] - показать доп. занятости
 /ignored_staff - показать ignore-list сотрудников
-/debug_staff ник - проверить staff/extras/events lookup
+/debug_staff [ник] - проверить staff/extras/events lookup
 /staff_find текст - найти модератора
 /bind staff_id alias [telegram_user_id] - привязать алиас к модератору
 /unbind alias - удалить привязку
@@ -45,12 +46,12 @@ week, month/current_month, prev_month/previous_month, prev2_month/two_months_ago
 
 @router.message(CommandStart())
 async def start(message: Message) -> None:
-    await message.answer("TTP VISOR на связи. /help покажет команды.")
+    await safe_answer(message, "TTP VISOR на связи. /help покажет команды.")
 
 
 @router.message(Command("help"))
 async def help_command(message: Message) -> None:
-    await message.answer(HELP_TEXT)
+    await safe_answer(message, HELP_TEXT)
 
 
 @router.message(Command("sync_staff"))
@@ -112,14 +113,14 @@ async def send_report(
     try:
         period = parse_period_expression(app_config.timezone, command.args)
     except ValueError as exc:
-        await message.answer(f"Не понял период: {exc}")
+        await safe_answer(message, f"Не понял период: {exc}")
         return
     try:
         await report_service.send_report(bot, session_factory, period)
     except ValueError as exc:
-        await message.answer(str(exc))
+        await safe_answer(message, str(exc))
         return
-    await message.answer("Отчёт отправлен в настроенный чат.")
+    await safe_answer(message, "✅ Отчёт отправлен.")
 
 
 @router.message(Command("extras"))

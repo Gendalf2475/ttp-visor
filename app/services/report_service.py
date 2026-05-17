@@ -10,7 +10,7 @@ from app.db.models.staff import StaffMember
 from app.db.repositories.staff_repo import StaffRepo
 from app.services.stats_service import ModeratorStats, PunishmentBreakdown, StatsReport, StatsService
 from app.utils.dates import Period
-from app.utils.text import html_escape, split_telegram_text
+from app.utils.messages import safe_send_message
 
 
 DIRECTION_ALIASES = {
@@ -62,7 +62,7 @@ class ReportService:
         totals = report.totals
         title_text = title or f"TTP VISOR — {_format_compact_title(period)}"
         lines = [
-            f"📊 {html_escape(title_text)}",
+            f"📊 {title_text}",
             f"🗓 {_format_compact_period(period)}",
             "",
             "📌 Всего:",
@@ -97,8 +97,8 @@ class ReportService:
             [
                 "",
                 "📎 Подробно: /stats_full",
-                "👤 По модератору: /stats_user <ник>",
-                "📂 По направлению: /stats_direction <направление>",
+                "👤 По модератору: /stats_user [ник]",
+                "📂 По направлению: /stats_direction [направление]",
             ]
         )
         return "\n".join(lines)
@@ -113,7 +113,7 @@ class ReportService:
         rows = self._full_report_rows(report.rows)
         title_text = title or f"TTP VISOR — отчёт за {period.title}"
         lines = [
-            f"📊 <b>{html_escape(title_text)}</b>",
+            f"📊 {title_text}",
             f"🗓 Период: {_format_period(period)}",
             "",
         ]
@@ -125,9 +125,9 @@ class ReportService:
         totals = report.totals
         lines.extend(self._format_summary(totals))
         lines.extend(["", *self._format_punishment_details(totals.punishments)])
-        lines.extend(["", "🏆 <b>Топ модераторов:</b>"])
+        lines.extend(["", "🏆 Топ модераторов:"])
         lines.extend(self._format_top(report.rows))
-        lines.extend(["", "👮‍♂️ <b>Модераторы:</b>"])
+        lines.extend(["", "👮‍♂️ Модераторы:"])
         for index, row in enumerate(rows, start=1):
             lines.extend(["", *self._format_moderator_card(row, index=index)])
         return "\n".join(lines)
@@ -147,13 +147,13 @@ class ReportService:
             return "За выбранный период по этому модератору нет сохранённых событий."
 
         lines = [
-            f"👮‍♂️ <b>Отчёт по модератору: {html_escape(staff.nickname or staff.full_name)}</b>",
+            f"👮‍♂️ Отчёт по модератору: {staff.nickname or staff.full_name}",
             f"🗓 Период: {_format_period(period)}",
             "",
-            f"🏷 Ранг: {html_escape(stats.rank or 'нет')}",
-            f"💼 Доп. занятость: {html_escape(_extras_inline(stats))}",
+            f"🏷 Ранг: {stats.rank or 'нет'}",
+            f"💼 Доп. занятость: {_extras_inline(stats)}",
             "",
-            "📌 <b>Общая активность:</b>",
+            "📌 Общая активность:",
             f"🎫 Поддержка: {stats.support_tickets}",
             f"🧾 Проверка тикетов: {stats.kt_checks}",
             f"⚖️ Наказаний всего: {stats.punishments.total}",
@@ -193,16 +193,16 @@ class ReportService:
                 report_format=self.config.reports.auto_report_format,
             )
 
-        for chunk in split_telegram_text(text):
-            await bot.send_message(
-                chat_id=self.config.report_target.chat_id,
-                message_thread_id=self.config.report_target.topic_id,
-                text=chunk,
-            )
+        await safe_send_message(
+            bot,
+            self.config.report_target.chat_id,
+            text,
+            topic_id=self.config.report_target.topic_id,
+        )
 
     def _format_summary(self, totals: ModeratorStats) -> list[str]:
         return [
-            "📌 <b>Общая статистика:</b>",
+            "📌 Общая статистика:",
             f"🎫 Закрыто тикетов ТП: {totals.support_tickets}",
             f"🧾 Проверено тикетов КТ: {totals.kt_checks}",
             f"⚖️ Выдано наказаний: {totals.punishments.issued}",
@@ -212,7 +212,7 @@ class ReportService:
 
     def _format_punishment_details(self, punishments: PunishmentBreakdown) -> list[str]:
         return [
-            "⚖️ <b>Детализация наказаний:</b>",
+            "⚖️ Детализация наказаний:",
             f"⛔️ Баны: {punishments.ban}",
             f"🔇 Муты: {punishments.mute}",
             f"⚠️ Предупреждения: {punishments.warn}",
@@ -237,7 +237,7 @@ class ReportService:
         if not top_rows:
             return ["нет данных"]
         return [
-            f"{index}. {html_escape(row.name)} — {self._metric(row, metric)} {suffix}".rstrip()
+            f"{index}. {row.name} — {self._metric(row, metric)} {suffix}".rstrip()
             for index, row in enumerate(top_rows[:limit], start=1)
         ]
 
@@ -254,9 +254,9 @@ class ReportService:
         )
 
         lines = [
-            f"{index}. <b>{html_escape(row.name)}</b>",
-            f"🏷 Ранг: {html_escape(row.rank or 'нет')}",
-            f"💼 Доп. занятость: {html_escape(_extras_inline(row))}",
+            f"{index}. {row.name}",
+            f"🏷 Ранг: {row.rank or 'нет'}",
+            f"💼 Доп. занятость: {_extras_inline(row)}",
         ]
         if show_support:
             lines.append(f"🎫 Поддержка: {row.support_tickets}")
@@ -293,7 +293,7 @@ class ReportService:
             if not names:
                 continue
             has_data = True
-            lines.append(f"{label}: {', '.join(html_escape(name) for name in names)}")
+            lines.append(f"{label}: {', '.join(names)}")
         if not has_data:
             lines.append("нет данных")
         return lines
@@ -302,7 +302,7 @@ class ReportService:
         totals = report.totals.punishments
         rows = [row for row in report.rows if row.punishments.total > 0]
         lines = [
-            "⚖️ <b>Отчёт по направлению: Наказания</b>",
+            "⚖️ Отчёт по направлению: Наказания",
             f"🗓 Период: {_format_period(report.period)}",
             "",
             f"📌 Всего наказаний: {totals.total}",
@@ -312,7 +312,7 @@ class ReportService:
             f"✅ Снятия наказаний: {totals.removed}",
             f"❗️Без пункта правила: {totals.without_rule}",
             "",
-            "🏆 <b>Топ-10 по наказаниям:</b>",
+            "🏆 Топ-10 по наказаниям:",
         ]
         lines.extend(self._format_top(rows, metric="punishments", suffix="", limit=10))
         return "\n".join(lines)
@@ -320,12 +320,12 @@ class ReportService:
     def _format_support_direction(self, report: StatsReport) -> str:
         rows = [row for row in report.rows if row.support_tickets > 0]
         lines = [
-            "🎫 <b>Отчёт по направлению: Поддержка</b>",
+            "🎫 Отчёт по направлению: Поддержка",
             f"🗓 Период: {_format_period(report.period)}",
             "",
             f"📌 Всего закрыто тикетов: {report.totals.support_tickets}",
             "",
-            "🏆 <b>Топ-10 по закрытым тикетам:</b>",
+            "🏆 Топ-10 по закрытым тикетам:",
         ]
         lines.extend(self._format_top(rows, metric="support", suffix="", limit=10))
         return "\n".join(lines)
@@ -333,12 +333,12 @@ class ReportService:
     def _format_kt_direction(self, report: StatsReport) -> str:
         rows = [row for row in report.rows if row.kt_checks > 0]
         lines = [
-            "🧾 <b>Отчёт по направлению: Проверка тикетов</b>",
+            "🧾 Отчёт по направлению: Проверка тикетов",
             f"🗓 Период: {_format_period(report.period)}",
             "",
             f"📌 Всего проверено тикетов: {report.totals.kt_checks}",
             "",
-            "🏆 <b>Топ-10 по проверенным тикетам:</b>",
+            "🏆 Топ-10 по проверенным тикетам:",
         ]
         lines.extend(self._format_top(rows, metric="kt", suffix="", limit=10))
         return "\n".join(lines)

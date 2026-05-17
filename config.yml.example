@@ -8,6 +8,13 @@ staff:
   ignored_nicknames:
     - morols
 
+filters:
+  ignore_reasons:
+    - "test"
+    - "тест"
+  ignore_targets:
+    - "testik"
+
 telegram_sources:
   support:
     enabled: true

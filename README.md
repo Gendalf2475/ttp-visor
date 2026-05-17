@@ -69,6 +69,10 @@ docker compose up -d --build
 - `/ignored_staff` - показать сотрудников из ignore-list.
 - `/debug_staff [ник]` - проверить normalized lookup состава, доп. занятостей и событий недели.
 - `/normalize_punishments` - нормализовать сохранённые события наказаний.
+- `/apply_filters` - применить фильтры тестовых событий к старым данным.
+- `/ignored_events [punishments|support|kt]` - показать последние игнорируемые события.
+- `/restore_event [тип] [id]` - вернуть событие в статистику.
+- `/ignore_event [тип] [id] [причина]` - вручную исключить событие.
 - `/parse_kt_test [текст]` - проверить парсинг сообщений КТ.
 - `/debug` - показать `chat_id`, `topic_id` и данные текущего сообщения.
 - `/staff_find <текст>` - поиск модератора.
@@ -247,6 +251,31 @@ reports:
 ```
 
 Для диагностики используйте `/parse_kt_test [текст]` или отправьте команду reply на сообщение. Команда покажет найденные ranges, singles, итоговый `tickets_count` и первые номера из `ticket_numbers`.
+
+## Исключение тестовых событий
+
+Тестовые наказания, тикеты поддержки и КТ не удаляются из БД, а помечаются `is_ignored=true` и не участвуют в `/stats`, `/stats_full`, `/stats_user`, `/stats_direction`, `/report` и автоотчётах.
+
+Пример `config.yml`:
+
+```yaml
+filters:
+  ignore_reasons:
+    - "test"
+    - "тест"
+
+  ignore_targets:
+    - "testik"
+```
+
+Новые события автоматически проверяются при сохранении. Для наказаний фильтр смотрит `reason` и `target`, для поддержки и КТ - `raw_text`. Старые события можно обработать командой `/apply_filters`.
+
+Диагностика и ручное управление:
+
+- `/ignored_events` - показать последние ignored-события;
+- `/ignored_events punishments`, `/ignored_events support`, `/ignored_events kt` - фильтр по типу;
+- `/restore_event punishment 31` - вернуть событие в статистику;
+- `/ignore_event kt 12 test run` - вручную исключить событие с причиной.
 
 ## Google Service Account
 

@@ -12,6 +12,7 @@ from app.db.repositories.bindings_repo import BindingsRepo
 from app.db.repositories.kt_repo import KTRepo
 from app.db.repositories.punishments_repo import PunishmentsRepo
 from app.db.repositories.support_repo import SupportRepo
+from app.services.event_filters import EventFilter
 from app.services.parser_kt import KTParser, ParsedKTCheck
 from app.services.parser_punishments import ParsedPunishment, PunishmentParseDiagnostics, PunishmentParser
 from app.services.parser_support import ParsedSupportTicket, SupportParser
@@ -79,6 +80,7 @@ async def _collect(
         values = asdict(parsed)
         values["staff_id"] = staff_id
         values.update(_sender_metadata(message))
+        values.update(_ignore_metadata(kind, parsed, app_config))
 
         if kind == "support":
             event_id = await SupportRepo(session).upsert(values)
@@ -182,6 +184,26 @@ def _sender_metadata(message: Message) -> dict[str, object]:
         "sender_user_id": message.from_user.id,
         "sender_username": clean_username(message.from_user.username),
         "sender_is_bot": message.from_user.is_bot,
+    }
+
+
+def _ignore_metadata(
+    kind: str,
+    parsed: ParsedSupportTicket | ParsedKTCheck | ParsedPunishment,
+    app_config: AppConfig,
+) -> dict[str, object]:
+    event_filter = EventFilter(app_config.filters)
+    if kind == "punishments" and isinstance(parsed, ParsedPunishment):
+        match = event_filter.evaluate_punishment(
+            reason=parsed.reason,
+            target=parsed.target,
+            raw_text=parsed.raw_text,
+        )
+    else:
+        match = event_filter.evaluate_raw_text(parsed.raw_text)
+    return {
+        "is_ignored": match.is_ignored,
+        "ignore_reason": match.ignore_reason,
     }
 
 

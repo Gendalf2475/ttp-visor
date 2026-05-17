@@ -10,6 +10,7 @@ from app.db.models.staff import StaffExtraOccupation
 from app.db.repositories.extra_occupations_repo import ExtraOccupationsRepo
 from app.db.repositories.punishments_repo import PunishmentsRepo
 from app.db.repositories.staff_repo import StaffRepo
+from app.services.event_filters import EventFilter, IgnoredEventView, normalize_event_kind
 from app.services.report_service import ReportService
 from app.services.staff_sync import StaffSyncService
 from app.utils.dates import current_week, parse_period_expression
@@ -35,6 +36,10 @@ HELP_TEXT = """TTP VISOR доступен только супер-админам
 /ignored_staff - показать ignore-list сотрудников
 /debug_staff [ник] - проверить staff/extras/events lookup
 /normalize_punishments - нормализовать сохранённые наказания
+/apply_filters - применить filters к старым событиям
+/ignored_events [punishments|support|kt] - показать ignored-события
+/restore_event тип id - восстановить событие
+/ignore_event тип id причина - исключить событие вручную
 /parse_kt_test [текст] - проверить парсинг КТ
 /staff_find текст - найти модератора
 /bind staff_id alias [telegram_user_id] - привязать алиас к модератору
@@ -185,6 +190,96 @@ async def normalize_punishments(
     )
 
 
+@router.message(Command("apply_filters"))
+async def apply_filters(
+    message: Message,
+    app_config: AppConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        result = await EventFilter(app_config.filters).apply_existing(session)
+        await session.commit()
+
+    await safe_answer(
+        message,
+        "Фильтры применены:\n"
+        f"Наказания: {result.punishments} помечено ignored\n"
+        f"ТП: {result.support} помечено ignored\n"
+        f"КТ: {result.kt} помечено ignored",
+    )
+
+
+@router.message(Command("ignored_events"))
+async def ignored_events(
+    message: Message,
+    command: CommandObject,
+    app_config: AppConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    args = (command.args or "").strip()
+    kind = normalize_event_kind(args) if args else None
+    if args and kind is None:
+        await safe_answer(message, "Неизвестный тип. Используйте punishments, support или kt.")
+        return
+
+    async with session_factory() as session:
+        rows = await EventFilter(app_config.filters).list_ignored(session, kind, limit=20)
+
+    await safe_answer(message, _format_ignored_events(rows))
+
+
+@router.message(Command("restore_event"))
+async def restore_event(
+    message: Message,
+    command: CommandObject,
+    app_config: AppConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    parsed = _parse_event_command(command.args, require_reason=False)
+    if parsed is None:
+        await safe_answer(message, "Использование: /restore_event punishment|support|kt [id]")
+        return
+    kind, event_id, _reason = parsed
+
+    async with session_factory() as session:
+        restored = await EventFilter(app_config.filters).set_ignored(
+            session,
+            kind,
+            event_id,
+            is_ignored=False,
+            ignore_reason=None,
+        )
+        await session.commit()
+
+    await safe_answer(message, "✅ Событие восстановлено." if restored else "Событие не найдено.")
+
+
+@router.message(Command("ignore_event"))
+async def ignore_event(
+    message: Message,
+    command: CommandObject,
+    app_config: AppConfig,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    parsed = _parse_event_command(command.args, require_reason=True)
+    if parsed is None:
+        await safe_answer(message, "Использование: /ignore_event punishment|support|kt [id] [reason]")
+        return
+    kind, event_id, reason = parsed
+
+    async with session_factory() as session:
+        ignored = await EventFilter(app_config.filters).set_ignored(
+            session,
+            kind,
+            event_id,
+            is_ignored=True,
+            ignore_reason=reason,
+        )
+        await session.commit()
+
+    await safe_answer(message, "✅ Событие исключено." if ignored else "Событие не найдено.")
+
+
 @router.message(Command("debug_staff"))
 async def debug_staff(
     message: Message,
@@ -248,6 +343,53 @@ async def debug_staff(
     )
 
     await message.answer("\n".join(lines))
+
+
+def _parse_event_command(args: str | None, *, require_reason: bool) -> tuple[str, int, str | None] | None:
+    parts = (args or "").strip().split(maxsplit=2)
+    min_parts = 3 if require_reason else 2
+    if len(parts) < min_parts:
+        return None
+
+    kind = normalize_event_kind(parts[0])
+    if kind is None:
+        return None
+
+    try:
+        event_id = int(parts[1])
+    except ValueError:
+        return None
+
+    reason = parts[2].strip() if len(parts) > 2 else None
+    if require_reason and not reason:
+        return None
+    return kind, event_id, reason
+
+
+def _format_ignored_events(rows: list[IgnoredEventView]) -> str:
+    lines = ["🚫 Игнорируемые события"]
+    if not rows:
+        return "\n".join([*lines, "", "нет данных"])
+
+    labels = {
+        "punishment": "Наказания",
+        "support": "ТП",
+        "kt": "КТ",
+    }
+    grouped: dict[str, list[IgnoredEventView]] = {}
+    for row in rows:
+        grouped.setdefault(row.kind, []).append(row)
+
+    for kind in ("punishment", "support", "kt"):
+        items = grouped.get(kind)
+        if not items:
+            continue
+        lines.extend(["", f"{labels[kind]}:"])
+        for item in items:
+            moderator = item.moderator_alias or "unknown"
+            lines.append(f"#{item.id} {moderator} — {item.summary}")
+            lines.append(f"Причина игнора: {item.ignore_reason or 'none'}")
+    return "\n".join(lines)
 
 
 def _format_all_extras(rows: list[StaffExtraOccupation]) -> str:

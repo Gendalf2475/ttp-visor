@@ -185,7 +185,11 @@ class StatsService:
                 func.count(),
             )
             .outerjoin(StaffMember, SupportTicket.staff_id == StaffMember.id)
-            .where(SupportTicket.closed_at >= period.start, SupportTicket.closed_at < period.end)
+            .where(
+                SupportTicket.closed_at >= period.start,
+                SupportTicket.closed_at < period.end,
+                SupportTicket.is_ignored.is_(False),
+            )
             .group_by(
                 SupportTicket.staff_id,
                 SupportTicket.moderator_alias,
@@ -222,7 +226,11 @@ class StatsService:
                 func.coalesce(func.sum(func.coalesce(KTCheck.tickets_count, 1)), 0),
             )
             .outerjoin(StaffMember, KTCheck.staff_id == StaffMember.id)
-            .where(KTCheck.checked_at >= period.start, KTCheck.checked_at < period.end)
+            .where(
+                KTCheck.checked_at >= period.start,
+                KTCheck.checked_at < period.end,
+                KTCheck.is_ignored.is_(False),
+            )
             .group_by(
                 KTCheck.staff_id,
                 KTCheck.moderator_alias,
@@ -265,6 +273,7 @@ class StatsService:
                 Punishment.punished_at >= period.start,
                 Punishment.punished_at < period.end,
                 Punishment.is_valid.is_(True),
+                Punishment.is_ignored.is_(False),
             )
         )
         for (

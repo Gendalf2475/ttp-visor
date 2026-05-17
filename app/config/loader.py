@@ -15,6 +15,11 @@ class StaffConfig(BaseModel):
     ignored_nicknames: list[str] = Field(default_factory=list)
 
 
+class FiltersConfig(BaseModel):
+    ignore_reasons: list[str] = Field(default_factory=list)
+    ignore_targets: list[str] = Field(default_factory=list)
+
+
 class TopicSourceConfig(BaseModel):
     enabled: bool = True
     chat_id: int
@@ -163,6 +168,7 @@ class AppConfig(BaseModel):
     timezone: str = "Europe/Moscow"
     bot: BotAccessConfig = Field(default_factory=BotAccessConfig)
     staff: StaffConfig = Field(default_factory=StaffConfig)
+    filters: FiltersConfig = Field(default_factory=FiltersConfig)
     telegram_sources: TelegramSourcesConfig = Field(default_factory=TelegramSourcesConfig)
     report_target: ReportTargetConfig = Field(default_factory=ReportTargetConfig)
     reports: ReportsConfig = Field(default_factory=ReportsConfig)

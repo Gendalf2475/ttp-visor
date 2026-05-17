@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -14,6 +15,9 @@ class KTCheck(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     event_key: Mapped[str] = mapped_column(String(255), unique=True)
     ticket_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tickets_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    ticket_numbers: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
+    raw_range_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     staff_id: Mapped[int | None] = mapped_column(ForeignKey("staff_members.id", ondelete="SET NULL"), nullable=True)
     moderator_alias: Mapped[str | None] = mapped_column(String(255), nullable=True)

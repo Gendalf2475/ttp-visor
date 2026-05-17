@@ -35,6 +35,7 @@ HELP_TEXT = """TTP VISOR доступен только супер-админам
 /ignored_staff - показать ignore-list сотрудников
 /debug_staff [ник] - проверить staff/extras/events lookup
 /normalize_punishments - нормализовать сохранённые наказания
+/parse_kt_test [текст] - проверить парсинг КТ
 /staff_find текст - найти модератора
 /bind staff_id alias [telegram_user_id] - привязать алиас к модератору
 /unbind alias - удалить привязку

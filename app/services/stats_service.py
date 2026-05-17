@@ -219,7 +219,7 @@ class StatsService:
                 StaffMember.nickname,
                 StaffMember.full_name,
                 StaffMember.rank,
-                func.count(),
+                func.coalesce(func.sum(func.coalesce(KTCheck.tickets_count, 1)), 0),
             )
             .outerjoin(StaffMember, KTCheck.staff_id == StaffMember.id)
             .where(KTCheck.checked_at >= period.start, KTCheck.checked_at < period.end)

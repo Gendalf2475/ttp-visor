@@ -147,4 +147,4 @@ class AccessMiddleware(BaseMiddleware):
     def _is_debug_command(message: Message) -> bool:
         text = message.text or message.caption or ""
         command = text.strip().split(maxsplit=1)[0] if text.strip() else ""
-        return command.split("@", maxsplit=1)[0] == "/debug"
+        return command.split("@", maxsplit=1)[0] in {"/debug", "/parse_kt_test"}

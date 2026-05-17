@@ -178,7 +178,10 @@ async def normalize_punishments(
         "Нормализация наказаний завершена:\n"
         f"проверено: {result.scanned}\n"
         f"нормализовано aliases: {result.normalized}\n"
-        f"помечено invalid: {result.invalidated}",
+        f"исправлено punishment_type: {result.types_fixed}\n"
+        f"исправлено action: {result.actions_fixed}\n"
+        f"помечено invalid: {result.invalidated}\n"
+        f"всего исправлений: {result.fixed_total}",
     )
 
 

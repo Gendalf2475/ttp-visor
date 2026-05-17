@@ -89,6 +89,19 @@ async def _collect(
 
         await session.commit()
 
+    if kind == "punishments" and isinstance(parsed, ParsedPunishment):
+        logger.info(
+            "Punishment parsed: id=%s message_id=%s moderator_alias=%s punishment_type=%s "
+            "action=%s punished_at=%s raw_first_line=%r",
+            event_id,
+            parsed.message_id,
+            parsed.moderator_alias,
+            parsed.punishment_type,
+            parsed.action,
+            parsed.punished_at.isoformat(),
+            _first_line(parsed.raw_text),
+        )
+
     logger.info(
         "Collected %s event id=%s chat=%s message=%s staff_id=%s",
         kind,
@@ -151,6 +164,10 @@ def _log_punishment_message_diagnostics(
 
 def _text_preview(message: Message) -> str:
     return (message.text or message.caption or "")[:300].replace("\n", "\\n")
+
+
+def _first_line(text: str) -> str:
+    return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
 def _sender_metadata(message: Message) -> dict[str, object]:

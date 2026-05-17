@@ -44,7 +44,7 @@ async def run() -> None:
     report_service = ReportService(app_config, stats_service)
     support_parser = SupportParser(app_config.parsers.support)
     kt_parser = KTParser(app_config.parsers.kt)
-    punishment_parser = PunishmentParser(app_config.parsers.punishments)
+    punishment_parser = PunishmentParser(app_config.parsers.punishments, app_config.timezone)
 
     dispatcher = build_dispatcher(
         app_config=app_config,

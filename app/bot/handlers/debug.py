@@ -5,7 +5,6 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.config.loader import AppConfig
-from app.utils.text import html_escape
 
 
 router = Router(name="debug")
@@ -40,14 +39,10 @@ async def debug_message(message: Message, app_config: AppConfig) -> None:
         lines.append(f"is_topic_message: {str(is_topic_message).lower()}")
 
     text = "\n".join(lines)
-    if topic_id is not None:
-        await message.answer(text, message_thread_id=topic_id)
-    else:
-        await message.answer(text)
+    await message.answer(text, parse_mode=None)
 
 
 def _value(value: object | None) -> str:
     if value is None:
         return "none"
-    return html_escape(value)
-
+    return str(value)

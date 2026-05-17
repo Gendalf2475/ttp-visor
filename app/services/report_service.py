@@ -148,20 +148,38 @@ class ReportService:
         ]
 
     def _format_moderator_card(self, row: ModeratorStats, index: int) -> list[str]:
-        return [
+        show_support = (
+            row.support_tickets > 0
+            or self.config.reports.show_zero_support_without_extra
+            or _has_support_extra(row)
+        )
+        show_kt = (
+            row.kt_checks > 0
+            or self.config.reports.show_zero_kt_without_extra
+            or _has_kt_extra(row)
+        )
+
+        lines = [
             f"{index}. <b>{html_escape(row.name)}</b>",
             f"🏷 Ранг: {html_escape(row.rank or 'нет')}",
             f"💼 Доп. занятость: {html_escape(_extras_inline(row))}",
-            f"🎫 Поддержка: {row.support_tickets}",
-            f"🧾 Проверка тикетов: {row.kt_checks}",
-            f"⚖️ Наказания: {row.punishments.total}",
-            f"   ⛔️ Баны: {row.punishments.ban}",
-            f"   🔇 Муты: {row.punishments.mute}",
-            f"   ⚠️ Предупреждения: {row.punishments.warn}",
-            f"   ✅ Снятия: {row.punishments.removed}",
-            f"❗️Без пункта правила: {row.punishments.without_rule}",
-            f"🔢 Всего: {row.total}",
         ]
+        if show_support:
+            lines.append(f"🎫 Поддержка: {row.support_tickets}")
+        if show_kt:
+            lines.append(f"🧾 Проверка тикетов: {row.kt_checks}")
+        lines.extend(
+            [
+                f"⚖️ Наказания: {row.punishments.total}",
+                f"⛔️ Баны: {row.punishments.ban}",
+                f"🔇 Муты: {row.punishments.mute}",
+                f"⚠️ Предупреждения: {row.punishments.warn}",
+                f"✅ Снятия: {row.punishments.removed}",
+                f"❗️ Без пункта правила: {row.punishments.without_rule}",
+                f"🔢 Всего: {row.total}",
+            ]
+        )
+        return lines
 
     def _format_punishments_direction(self, report: StatsReport) -> str:
         totals = report.totals.punishments
@@ -245,3 +263,25 @@ def _extras_inline(row: ModeratorStats | StaffMember) -> str:
     if not extras:
         return "нет"
     return ", ".join(extra.short_label for extra in extras)
+
+
+def _has_support_extra(row: ModeratorStats) -> bool:
+    return _has_extra_with_markers(
+        row,
+        markers=("тп", "тех", "поддерж", "техническая поддержка", "поддержка"),
+    )
+
+
+def _has_kt_extra(row: ModeratorStats) -> bool:
+    return _has_extra_with_markers(
+        row,
+        markers=("кт", "контроль тикетов", "проверка тикетов"),
+    )
+
+
+def _has_extra_with_markers(row: ModeratorStats, markers: tuple[str, ...]) -> bool:
+    for extra in row.extra_occupations:
+        text = f"{extra.direction} {extra.occupation}".lower()
+        if any(marker in text for marker in markers):
+            return True
+    return False

@@ -48,6 +48,11 @@ class ReportTargetConfig(BaseModel):
     topic_id: int | None = None
 
 
+class ReportsConfig(BaseModel):
+    show_zero_support_without_extra: bool = False
+    show_zero_kt_without_extra: bool = False
+
+
 class StaffGoogleSheetConfig(BaseModel):
     enabled: bool = True
     spreadsheet_id: str | None = "1Ss0Eq_zqrbQh2JQ4cr4d1AVG8-7-OPeHorSdh5-umII"
@@ -149,6 +154,7 @@ class AppConfig(BaseModel):
     bot: BotAccessConfig = Field(default_factory=BotAccessConfig)
     telegram_sources: TelegramSourcesConfig = Field(default_factory=TelegramSourcesConfig)
     report_target: ReportTargetConfig = Field(default_factory=ReportTargetConfig)
+    reports: ReportsConfig = Field(default_factory=ReportsConfig)
     google_sheets: GoogleSheetsConfig = Field(default_factory=GoogleSheetsConfig)
     parsers: ParsersConfig = Field(default_factory=ParsersConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)

@@ -28,6 +28,10 @@ report_target:
   chat_id: -1002222222222
   topic_id: 5
 
+reports:
+  show_zero_support_without_extra: false
+  show_zero_kt_without_extra: false
+
 google_sheets:
   staff:
     enabled: true

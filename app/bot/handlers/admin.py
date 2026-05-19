@@ -175,7 +175,7 @@ async def normalize_punishments(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as session:
-        result = await PunishmentsRepo(session).normalize_moderator_aliases()
+        result = await PunishmentsRepo(session).normalize_punishments()
         await session.commit()
 
     await safe_answer(
@@ -184,6 +184,13 @@ async def normalize_punishments(
         f"проверено: {result.scanned}\n"
         f"нормализовано aliases: {result.normalized}\n"
         f"исправлено punishment_type: {result.types_fixed}\n"
+        "по типам: "
+        f"ban={result.ban_fixed}, "
+        f"mute={result.mute_fixed}, "
+        f"warn={result.warn_fixed}, "
+        f"unban={result.unban_fixed}, "
+        f"unmute={result.unmute_fixed}, "
+        f"unwarn={result.unwarn_fixed}\n"
         f"исправлено action: {result.actions_fixed}\n"
         f"помечено invalid: {result.invalidated}\n"
         f"всего исправлений: {result.fixed_total}",

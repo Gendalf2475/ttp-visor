@@ -56,7 +56,7 @@ class ParsedPunishment:
     event_key: str
     punishment_id: str | None
     action: str
-    punishment_type: str | None
+    punishment_type: str
     rule_missing: bool
     is_valid: bool
     target: str | None
@@ -100,14 +100,14 @@ class PunishmentParser:
 
         punishment_type = classify_punishment_type(text)
         action = action_from_punishment_type(punishment_type)
-        first_line = first_non_empty_line(text)
+        first_line = punishment_header_line(text)
         logger.info(
             "Punishment type detected: first_line=%r punishment_type=%s action=%s",
             first_line,
             punishment_type,
             action,
         )
-        if action is None:
+        if punishment_type is None or action is None:
             return PunishmentParseDiagnostics(
                 parsed=None,
                 failure_reason=f"punishment_type_not_detected first_line={first_line or 'none'}",
@@ -163,7 +163,7 @@ class PunishmentParser:
 
 
 def classify_punishment_type(text: str) -> str | None:
-    first_line_upper = first_non_empty_line(normalize_punishment_text(text)).upper()
+    first_line_upper = punishment_header_line(text).upper()
     if "СНЯТИЕ | БЛОКИРОВКА ЧАТА" in first_line_upper:
         return "unmute"
     if "СНЯТИЕ | БЛОКИРОВКА" in first_line_upper:
@@ -177,6 +177,10 @@ def classify_punishment_type(text: str) -> str | None:
     if "ПРЕДУПРЕЖДЕНИЕ" in first_line_upper:
         return "warn"
     return None
+
+
+def punishment_header_line(text: str | None) -> str:
+    return first_non_empty_line(normalize_punishment_text(text))
 
 
 def normalize_punishment_text(text: str | None) -> str:

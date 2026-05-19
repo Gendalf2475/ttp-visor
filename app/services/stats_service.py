@@ -13,9 +13,7 @@ from app.db.models.support_tickets import SupportTicket
 from app.db.repositories.extra_occupations_repo import ExtraOccupationsRepo
 from app.db.repositories.staff_repo import StaffRepo
 from app.services.parser_punishments import (
-    classify_punishment_type,
     is_invalid_punishment_moderator_alias,
-    is_rule_missing,
     normalize_punishment_moderator_alias,
 )
 from app.utils.dates import Period
@@ -266,7 +264,6 @@ class StatsService:
                 StaffMember.rank,
                 Punishment.punishment_type,
                 Punishment.rule_missing,
-                Punishment.raw_text,
             )
             .outerjoin(StaffMember, Punishment.staff_id == StaffMember.id)
             .where(
@@ -284,14 +281,12 @@ class StatsService:
             rank,
             punishment_type,
             rule_missing,
-            raw_text,
         ) in result.all():
             alias = normalize_punishment_moderator_alias(alias)
             if is_invalid_punishment_moderator_alias(alias):
                 continue
 
-            resolved_type = punishment_type or classify_punishment_type(raw_text or "")
-            resolved_rule_missing = bool(rule_missing) or is_rule_missing(raw_text or "")
+            resolved_type = _stored_punishment_type(punishment_type)
             stats = self._bucket(
                 buckets,
                 staff_id=staff_id,
@@ -301,7 +296,7 @@ class StatsService:
                 rank=rank,
             )
             if stats is not None:
-                stats.punishments.add(resolved_type, resolved_rule_missing)
+                stats.punishments.add(resolved_type, bool(rule_missing))
 
     async def _enrich_rows(self, session: AsyncSession, buckets: dict[str, ModeratorStats]) -> None:
         for key, row in list(buckets.items()):
@@ -395,3 +390,9 @@ class StatsService:
 
     def _is_ignored_staff(self, staff: StaffMember) -> bool:
         return self.is_ignored(staff.nickname) or self.is_ignored(staff.full_name)
+
+
+def _stored_punishment_type(value: str | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value if value in PUNISHMENT_TYPES else None

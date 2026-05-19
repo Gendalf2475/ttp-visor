@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -11,14 +12,15 @@ class Period:
     title: str
     start: datetime
     end: datetime
+    timezone_name: str = "UTC"
 
     @property
     def start_date(self) -> date:
-        return self.start.date()
+        return self.start.astimezone(ZoneInfo(self.timezone_name)).date()
 
     @property
     def end_date_inclusive(self) -> date:
-        return (self.end - timedelta(microseconds=1)).date()
+        return (self.end - timedelta(microseconds=1)).astimezone(ZoneInfo(self.timezone_name)).date()
 
 
 def utc_now() -> datetime:
@@ -40,7 +42,7 @@ def current_week(tz_name: str) -> Period:
     now = datetime.now(tz)
     start_day = now.date() - timedelta(days=now.weekday())
     start = local_midnight(start_day, tz)
-    return Period("week", "текущую неделю", to_utc(start), to_utc(now))
+    return Period("week", "текущую неделю", to_utc(start), to_utc(now), tz_name)
 
 
 def month_period(tz_name: str, offset_months: int, key: str, title: str) -> Period:
@@ -58,7 +60,7 @@ def month_period(tz_name: str, offset_months: int, key: str, title: str) -> Peri
     if offset_months == 0:
         end = min(end, now)
 
-    return Period(key, title, to_utc(start), to_utc(end))
+    return Period(key, title, to_utc(start), to_utc(end), tz_name)
 
 
 def current_month(tz_name: str) -> Period:
@@ -79,7 +81,7 @@ def custom_period(tz_name: str, start_day: date, end_day: date) -> Period:
     tz = ZoneInfo(tz_name)
     start = local_midnight(start_day, tz)
     end = local_midnight(end_day + timedelta(days=1), tz)
-    return Period("custom", f"{start_day.isoformat()} - {end_day.isoformat()}", to_utc(start), to_utc(end))
+    return Period("custom", f"{start_day.isoformat()} - {end_day.isoformat()}", to_utc(start), to_utc(end), tz_name)
 
 
 def period_by_key(tz_name: str, key: str) -> Period:
@@ -106,16 +108,59 @@ def parse_period_expression(tz_name: str, expression: str | None) -> Period:
     if not expression or not expression.strip():
         return current_week(tz_name)
 
-    parts = expression.strip().split()
+    normalized_expression = expression.strip()
+    parts = _split_period_expression(normalized_expression)
     if len(parts) == 2:
-        return custom_period(tz_name, parse_date(parts[0]), parse_date(parts[1]))
+        current_year = datetime.now(ZoneInfo(tz_name)).year
+        return custom_period(
+            tz_name,
+            parse_date(parts[0], default_year=current_year),
+            parse_date(parts[1], default_year=current_year),
+        )
 
     return period_by_key(tz_name, parts[0])
 
 
-def parse_date(value: str) -> date:
+def parse_date(value: str, default_year: int | None = None) -> date:
     value = value.strip()
     try:
         return date.fromisoformat(value)
     except ValueError:
-        return datetime.strptime(value, "%d.%m.%Y").date()
+        pass
+
+    for fmt in ("%d.%m.%Y", "%d.%m.%y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+
+    if default_year is not None:
+        try:
+            parsed = datetime.strptime(value, "%d.%m")
+            return date(default_year, parsed.month, parsed.day)
+        except ValueError:
+            pass
+
+    raise ValueError(f"Invalid date: {value}")
+
+
+def _split_period_expression(expression: str) -> list[str]:
+    parts = expression.split()
+    if len(parts) == 2:
+        return parts
+
+    if "–" in expression or "—" in expression:
+        return [part.strip() for part in re.split(r"\s*[–—]\s*", expression, maxsplit=1) if part.strip()]
+
+    dotted_range = re.fullmatch(
+        r"\s*(\d{1,2}\.\d{1,2}(?:\.\d{2,4})?)\s*-\s*(\d{1,2}\.\d{1,2}(?:\.\d{2,4})?)\s*",
+        expression,
+    )
+    if dotted_range:
+        return [dotted_range.group(1), dotted_range.group(2)]
+
+    spaced_hyphen_range = re.fullmatch(r"\s*(.+?)\s+-\s+(.+?)\s*", expression)
+    if spaced_hyphen_range:
+        return [spaced_hyphen_range.group(1), spaced_hyphen_range.group(2)]
+
+    return parts

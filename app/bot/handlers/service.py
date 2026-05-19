@@ -58,18 +58,22 @@ async def _collect(
     kt_parser: KTParser,
     punishment_parser: PunishmentParser,
 ) -> None:
-    punishment_diagnostics = _log_punishment_message_diagnostics(message, app_config, punishment_parser)
     kind = _source_kind(message, app_config)
     if kind is None:
+        _log_unmatched_punishment_source_message(message, app_config)
         return
 
+    punishment_diagnostics: PunishmentParseDiagnostics | None = None
     parsed: ParsedSupportTicket | ParsedKTCheck | ParsedPunishment | None
     if kind == "support":
         parsed = support_parser.parse(message)
     elif kind == "kt":
         parsed = kt_parser.parse(message)
     else:
-        parsed = punishment_diagnostics.parsed if punishment_diagnostics else punishment_parser.parse(message)
+        punishment_diagnostics = _log_punishment_message_diagnostics(message, app_config, punishment_parser)
+        if punishment_diagnostics is None:
+            return
+        parsed = punishment_diagnostics.parsed
 
     if parsed is None:
         return
@@ -129,7 +133,11 @@ def _log_punishment_message_diagnostics(
         return None
 
     match = source_match_reason(message, source_config)
-    diagnostics = punishment_parser.parse_with_diagnostics(message) if match.matched else None
+    if not match.matched:
+        _log_unmatched_punishment_source_message(message, app_config)
+        return None
+
+    diagnostics = punishment_parser.parse_with_diagnostics(message)
     parsed = diagnostics.parsed if diagnostics else None
     from_user = message.from_user
     sender_chat = message.sender_chat
@@ -162,6 +170,47 @@ def _log_punishment_message_diagnostics(
         diagnostics.failure_reason if diagnostics else None,
     )
     return diagnostics
+
+
+def _log_unmatched_punishment_source_message(message: Message, app_config: AppConfig) -> None:
+    if not app_config.debug.log_source_mismatch or not logger.isEnabledFor(logging.DEBUG):
+        return
+
+    source_config = app_config.telegram_sources.punishments
+    if source_config is None or message.chat.id != source_config.chat_id:
+        return
+
+    match = source_match_reason(message, source_config)
+    if match.matched:
+        return
+
+    from_user = message.from_user
+    sender_chat = message.sender_chat
+    logger.debug(
+        "Punishment message diagnostics: chat_id=%s topic_id=%s message_id=%s "
+        "from_user_id=%s from_username=%s from_user_is_bot=%s "
+        "sender_chat_id=%s sender_chat_title=%s text_preview=%r "
+        "matched_punishments_source=%s source_reason=%s "
+        "parser_success=%s punishment_type=%s moderator_alias=%s "
+        "punishment_reason=%s occurred_at=%s failure_reason=%s",
+        message.chat.id,
+        message.message_thread_id,
+        message.message_id,
+        from_user.id if from_user else None,
+        from_user.username if from_user else None,
+        from_user.is_bot if from_user else None,
+        sender_chat.id if sender_chat else None,
+        sender_chat.title if sender_chat else None,
+        _text_preview(message),
+        False,
+        match.reason,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
 
 
 def _text_preview(message: Message) -> str:

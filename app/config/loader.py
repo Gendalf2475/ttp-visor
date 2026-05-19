@@ -20,6 +20,11 @@ class FiltersConfig(BaseModel):
     ignore_targets: list[str] = Field(default_factory=list)
 
 
+class DebugConfig(BaseModel):
+    log_source_mismatch: bool = False
+    log_unmatched_messages: bool = False
+
+
 class TopicSourceConfig(BaseModel):
     enabled: bool = True
     chat_id: int
@@ -169,6 +174,7 @@ class AppConfig(BaseModel):
     bot: BotAccessConfig = Field(default_factory=BotAccessConfig)
     staff: StaffConfig = Field(default_factory=StaffConfig)
     filters: FiltersConfig = Field(default_factory=FiltersConfig)
+    debug: DebugConfig = Field(default_factory=DebugConfig)
     telegram_sources: TelegramSourcesConfig = Field(default_factory=TelegramSourcesConfig)
     report_target: ReportTargetConfig = Field(default_factory=ReportTargetConfig)
     reports: ReportsConfig = Field(default_factory=ReportsConfig)

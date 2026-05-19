@@ -83,6 +83,11 @@ class AccessMiddleware(BaseMiddleware):
         from_user = message.from_user
         sender_chat = message.sender_chat
         source_match = message_source_match(message, self.config.telegram_sources)
+        if not source_match.matched and (
+            not self.config.debug.log_unmatched_messages
+            or not self.config.debug.log_source_mismatch
+        ):
+            return
         text_preview = ((message.text or message.caption or "")[:300]).replace("\n", "\\n")
 
         logger.debug(
@@ -105,6 +110,9 @@ class AccessMiddleware(BaseMiddleware):
         )
 
     def _log_unmatched_punishment_source_message(self, message: Message) -> None:
+        if not self.config.debug.log_source_mismatch or not logger.isEnabledFor(logging.DEBUG):
+            return
+
         source_config = self.config.telegram_sources.punishments
         if source_config is None or message.chat.id != source_config.chat_id:
             return
@@ -117,7 +125,7 @@ class AccessMiddleware(BaseMiddleware):
         sender_chat = message.sender_chat
         text_preview = ((message.text or message.caption or "")[:300]).replace("\n", "\\n")
 
-        logger.info(
+        logger.debug(
             "Punishment message diagnostics: chat_id=%s topic_id=%s message_id=%s "
             "from_user_id=%s from_username=%s from_user_is_bot=%s "
             "sender_chat_id=%s sender_chat_title=%s text_preview=%r "

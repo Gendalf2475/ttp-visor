@@ -15,6 +15,10 @@ filters:
   ignore_targets:
     - "testik"
 
+debug:
+  log_source_mismatch: false
+  log_unmatched_messages: false
+
 telegram_sources:
   support:
     enabled: true
